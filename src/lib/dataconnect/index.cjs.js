@@ -49,6 +49,20 @@ exports.createBooking = function createBooking(dcOrVars, vars) {
 }
 ;
 
+const createMarketplacePropertyRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return mutationRef(dcInstance, 'CreateMarketplaceProperty', inputVars);
+}
+createMarketplacePropertyRef.operationName = 'CreateMarketplaceProperty';
+exports.createMarketplacePropertyRef = createMarketplacePropertyRef;
+
+exports.createMarketplaceProperty = function createMarketplaceProperty(dcOrVars, vars) {
+  const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
+  return executeMutation(createMarketplacePropertyRef(dcInstance, inputVars));
+}
+;
+
 const fetchDistrictAvailabilityRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();
@@ -91,5 +105,20 @@ exports.listAllProperties = function listAllProperties(dcOrVars, varsOrOptions, 
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
   return executeQuery(listAllPropertiesRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+}
+;
+
+const listMarketplacePropertiesRef = (dc) => {
+  const { dc: dcInstance} = validateArgs(connectorConfig, dc, undefined);
+  dcInstance._useGeneratedSdk();
+  return queryRef(dcInstance, 'ListMarketplaceProperties');
+}
+listMarketplacePropertiesRef.operationName = 'ListMarketplaceProperties';
+exports.listMarketplacePropertiesRef = listMarketplacePropertiesRef;
+
+exports.listMarketplaceProperties = function listMarketplaceProperties(dcOrOptions, options) {
+  
+  const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
+  return executeQuery(listMarketplacePropertiesRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
 }
 ;

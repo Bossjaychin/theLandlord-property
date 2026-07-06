@@ -6,7 +6,7 @@ mutation CreateProperty(
   $isDistressSale: Boolean
   $agisVerified: Boolean
   $askingPrice: Float
-) @auth(level: USER, insecureReason: "Any authenticated user can create properties for mock testing") {
+) @auth(level: PUBLIC) {
   property_insert(data: {
     title: $title
     nightlyRate: $nightlyRate
@@ -25,7 +25,7 @@ mutation CreateDistressProperty(
   $district: String!
   $askingPrice: Float!
   $description: String!
-) @auth(level: USER, insecureReason: "Admins create distress listings with AI embeddings") {
+) @auth(level: PUBLIC) {
   property_insert(data: {
     title: $title
     nightlyRate: $nightlyRate
@@ -46,10 +46,48 @@ mutation CreateBooking(
   $propertyId: UUID!
   $checkIn: Date!
   $checkOut: Date!
-) @auth(level: USER, insecureReason: "Any authenticated user can book a property") {
+) @auth(level: PUBLIC) {
   booking_insert(data: {
     propertyId: $propertyId
     checkIn: $checkIn
     checkOut: $checkOut
+  })
+}
+
+# Create a marketplace property listing
+mutation CreateMarketplaceProperty(
+  $title: String!
+  $type: String!
+  $district: String!
+  $price: Float!
+  $titleDoc: String!
+  $verified: Boolean!
+  $size: String!
+  $sqm: Int!
+  $plots: Int
+  $purpose: [String!]!
+  $features: [String!]!
+  $agent: String!
+  $photos: Int!
+  $description: String!
+) @auth(level: PUBLIC) {
+  property_insert(data: {
+    title: $title
+    nightlyRate: 0
+    district: $district
+    isDistressSale: false
+    agisVerified: $verified
+    askingPrice: $price
+    type: $type
+    titleDoc: $titleDoc
+    size: $size
+    sqm: $sqm
+    plots: $plots
+    purpose: $purpose
+    features: $features
+    agent: $agent
+    photos: $photos
+    description: $description
+    isMarketplaceListing: true
   })
 }

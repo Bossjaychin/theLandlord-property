@@ -1,4 +1,6 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
+import { listMarketplaceProperties, createMarketplaceProperty } from "./lib/dataconnect";
+import AbujaMap from "./AbujaMap";
 
 /* ============================================================
    AI PROPERTY MARKETPLACE — Pillar 3
@@ -613,6 +615,7 @@ const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
       style={{ position: "fixed", inset: 0, background: "rgba(12,43,31,.45)", zIndex: 99, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 12 }}
     >
       <div
+        className="listing-modal-inner"
         onClick={e => e.stopPropagation()}
         style={{ background: T.paper, borderRadius: 20, width: "min(740px,100%)", maxHeight: "92vh", overflowY: "auto", padding: 24 }}
       >
@@ -631,7 +634,7 @@ const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
         </div>
 
         {/* Price + size */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 18 }}>
+        <div className="listing-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 18 }}>
           {[
             ["Asking Price", fmtN(listing.price, cur), T.green],
             ["Size", listing.size, T.ink],
@@ -798,12 +801,109 @@ const ListingCard = ({ listing, cur, onOpen, showScore }) => {
 /* ══════════════════════════════════════════════════════════
    MAIN MARKETPLACE VIEW
    ══════════════════════════════════════════════════════════ */
-export default function Marketplace({ cur, onWhatsAppOpen }) {
+export default function Marketplace({ cur, onWhatsAppOpen, usingEmulator, dataConnect, user, onSignInRequest, distressDeals = [], onOpenDeal }) {
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [modal, setModal] = useState(null);
+  const [showMap, setShowMap] = useState(true);
   const textareaRef = useRef(null);
+
+  // Database listings state
+  const [dbListings, setDbListings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  // Form state for new marketplace listing
+  const [submitForm, setSubmitForm] = useState({
+    title: "",
+    type: "Home",
+    district: "Jabi",
+    price: "",
+    titleDoc: "C of O",
+    size: "",
+    sqm: "",
+    plots: "",
+    purpose: "",
+    features: "",
+    agent: "",
+    description: ""
+  });
+  const [submitError, setSubmitError] = useState("");
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Helpers to map DB properties to local format
+  const mapDbListings = (props) => {
+    return props.map(p => ({
+      id: p.id,
+      type: p.type,
+      district: p.district,
+      price: p.askingPrice,
+      title_doc: p.titleDoc,
+      verified: p.agisVerified,
+      listed: 1, // Default listed days
+      headline: p.title,
+      size: p.size,
+      sqm: p.sqm,
+      plots: p.plots,
+      purpose: p.purpose || [],
+      features: p.features || [],
+      agent: p.agent,
+      photos: p.photos || 6,
+      description: p.description
+    }));
+  };
+
+  // Load properties from emulator or seed
+  useEffect(() => {
+    if (!usingEmulator || !dataConnect) return;
+
+    const loadMarketplace = async () => {
+      setLoading(true);
+      try {
+        const res = await listMarketplaceProperties(dataConnect);
+        const props = res?.data?.properties || [];
+        
+        if (props.length === 0) {
+          console.log("Database contains 0 marketplace properties. Seeding default listings...");
+          // Seed the 24 listings
+          for (const item of LISTINGS) {
+            await createMarketplaceProperty(dataConnect, {
+              title: item.headline,
+              type: item.type,
+              district: item.district,
+              price: item.price,
+              titleDoc: item.title_doc,
+              verified: item.verified,
+              size: item.size,
+              sqm: item.sqm || 0,
+              plots: item.plots || null,
+              purpose: item.purpose,
+              features: item.features,
+              agent: item.agent,
+              photos: item.photos || 8,
+              description: item.description
+            });
+          }
+          console.log("Seeding complete! Reloading properties...");
+          const reloadRes = await listMarketplaceProperties(dataConnect);
+          const reloadedProps = reloadRes?.data?.properties || [];
+          setDbListings(mapDbListings(reloadedProps));
+        } else {
+          setDbListings(mapDbListings(props));
+        }
+      } catch (err) {
+        console.error("Failed to load/seed marketplace properties:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMarketplace();
+  }, [usingEmulator, dataConnect]);
+
+  const activeListings = usingEmulator ? dbListings : LISTINGS;
 
   const handleSearch = () => {
     setSubmitted(query.trim());
@@ -819,10 +919,86 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
     if (onWhatsAppOpen) onWhatsAppOpen();
   };
 
+  const handleSubmitListing = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const purposeArr = submitForm.purpose.split(",").map(x => x.trim()).filter(Boolean);
+      const featuresArr = submitForm.features.split(",").map(x => x.trim()).filter(Boolean);
+      
+      if (usingEmulator && dataConnect) {
+        await createMarketplaceProperty(dataConnect, {
+          title: submitForm.title,
+          type: submitForm.type,
+          district: submitForm.district,
+          price: Number(submitForm.price),
+          titleDoc: submitForm.titleDoc,
+          verified: true, // Auto-verified for this demo
+          size: submitForm.size,
+          sqm: Number(submitForm.sqm),
+          plots: submitForm.plots ? Number(submitForm.plots) : null,
+          purpose: purposeArr,
+          features: featuresArr,
+          agent: submitForm.agent,
+          photos: 6,
+          description: submitForm.description
+        });
+
+        // Reload properties from database
+        const reloadRes = await listMarketplaceProperties(dataConnect);
+        const reloadedProps = reloadRes?.data?.properties || [];
+        setDbListings(mapDbListings(reloadedProps));
+      } else {
+        // Fallback for non-emulator mode
+        const newListing = {
+          id: "m" + Date.now(),
+          type: submitForm.type,
+          district: submitForm.district,
+          price: Number(submitForm.price),
+          title_doc: submitForm.titleDoc,
+          verified: true,
+          listed: 1,
+          headline: submitForm.title,
+          size: submitForm.size,
+          sqm: Number(submitForm.sqm),
+          plots: submitForm.plots ? Number(submitForm.plots) : null,
+          purpose: purposeArr,
+          features: featuresArr,
+          agent: submitForm.agent,
+          photos: 6,
+          description: submitForm.description
+        };
+        LISTINGS.unshift(newListing); // Add locally
+      }
+
+      setSubmitSuccess(true);
+      setSubmitForm({
+        title: "",
+        type: "Home",
+        district: "Jabi",
+        price: "",
+        titleDoc: "C of O",
+        size: "",
+        sqm: "",
+        plots: "",
+        purpose: "",
+        features: "",
+        agent: "",
+        description: ""
+      });
+    } catch (err) {
+      console.error("Failed to submit property:", err);
+      setSubmitError(err.message || "Failed to submit property to the database.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const signals = useMemo(() => submitted ? parseQuery(submitted) : null, [submitted]);
 
   const results = useMemo(() => {
-    let base = LISTINGS;
+    let base = activeListings;
 
     if (groupFilter !== "all") {
       base = base.filter(l => TYPE_META[l.type]?.group === groupFilter);
@@ -904,7 +1080,7 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
           </div>
 
           {/* Example chips */}
-          <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <div className="example-chips" style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <span style={{ fontSize: 11.5, opacity: 0.7 }}>Try:</span>
             {EXAMPLES.slice(0, 4).map(ex => (
               <button
@@ -937,6 +1113,55 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
           {signals.quantity && <Pill bg={T.mint} color={T.green} border={T.green}>{signals.quantity} plots</Pill>}
           {signals.purposes.length > 0 && <Pill bg={T.tealSoft} color={T.teal}>{signals.purposes[0]}</Pill>}
           <span style={{ fontSize: 12, color: T.sub }}>— {results.length} listing{results.length !== 1 ? "s" : ""} ranked by relevance</span>
+        </div>
+      )}
+
+      {/* ── 🗺️ Interactive Abuja Distress Deals Map ── */}
+      {distressDeals.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          {/* Map toggle header */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            marginBottom: 12, flexWrap: "wrap", gap: 8,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ height: 2, width: 24, background: T.green, borderRadius: 2 }} />
+              <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 16, color: T.ink }}>
+                Distress Deals · Abuja Map
+              </div>
+              <Pill bg={T.mint} color={T.green}>{distressDeals.length} verified pins</Pill>
+            </div>
+            <button
+              onClick={() => setShowMap(v => !v)}
+              style={{
+                background: showMap ? T.paper : T.green,
+                color: showMap ? T.sub : "#fff",
+                border: `1.5px solid ${showMap ? T.line : T.green}`,
+                borderRadius: 8, padding: "6px 14px",
+                fontSize: 12, fontWeight: 700, cursor: "pointer",
+                transition: "all .18s ease",
+                display: "flex", alignItems: "center", gap: 6,
+              }}
+            >
+              {showMap ? "▲ Hide Map" : "🗺️ Show Map"}
+            </button>
+          </div>
+
+          {showMap && (
+            <div style={{ animation: "mapSlideIn .25s ease" }}>
+              <style>{`
+                @keyframes mapSlideIn {
+                  from { opacity: 0; transform: translateY(-8px); }
+                  to   { opacity: 1; transform: translateY(0); }
+                }
+                @keyframes spin { to { transform: rotate(360deg); } }
+              `}</style>
+              <AbujaMap deals={distressDeals} onOpenDeal={onOpenDeal} />
+              <div style={{ fontSize: 11.5, color: T.sub, marginTop: 8, textAlign: "center" }}>
+                Click any pin to preview a deal · Scroll map to zoom · Deals below market in verified Abuja districts
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -973,11 +1198,11 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
       </div>
 
       {/* ── Stats strip ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginTop: 14 }}>
+      <div className="marketplace-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginTop: 14 }}>
         {[
           { label: "Property Types", value: "12" },
           { label: "Abuja Districts", value: "12+" },
-          { label: "Verified Listings", value: LISTINGS.filter(l => l.verified).length + "" },
+          { label: "Verified Listings", value: activeListings.filter(l => l.verified).length + "" },
           { label: "AI-Matched Today", value: "347" },
         ].map(({ label, value }) => (
           <div key={label} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", textAlign: "center" }}>
@@ -1071,6 +1296,7 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
               💬 List via WhatsApp
             </button>
             <button
+              onClick={() => setShowSubmitModal(true)}
               style={{ background: "rgba(255,255,255,.1)", color: "#fff", border: "1.5px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "12px 24px", fontWeight: 700, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap" }}
             >
               📋 Submit listing form
@@ -1081,6 +1307,226 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
 
       {/* Listing modal */}
       <ListingModal listing={modal} cur={cur} onClose={() => setModal(null)} onWhatsApp={handleWhatsApp} />
+
+      {/* Submit Listing Modal */}
+      {showSubmitModal && (
+        <div
+          onClick={() => setShowSubmitModal(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(12,43,31,.45)", zIndex: 99, display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: T.paper, borderRadius: 20, width: "min(600px,100%)", maxHeight: "90vh", overflowY: "auto", padding: 24 }}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: T.ink }}>
+                📋 Submit Marketplace Listing
+              </div>
+              <button onClick={() => setShowSubmitModal(false)} style={{ border: "none", background: T.card, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 15 }}>✕</button>
+            </div>
+
+            {submitSuccess ? (
+              <div style={{ background: T.mint, color: T.green, padding: 16, borderRadius: 12, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>Listing Registered!</div>
+                <div style={{ fontSize: 13, marginTop: 4, lineHeight: 1.4 }}>
+                  Your listing has been successfully saved to SQL Connect and published to the AI Property Marketplace.
+                </div>
+                <button
+                  onClick={() => {
+                    setSubmitSuccess(false);
+                    setShowSubmitModal(false);
+                  }}
+                  style={{ marginTop: 14, background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitListing} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+                {submitError && (
+                  <div style={{ background: "#FDE8E8", border: `1px solid ${T.risk}33`, color: T.risk, padding: 10, borderRadius: 8, fontSize: 12.5 }}>
+                    {submitError}
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Property Name / Headline *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 3-Bedroom Serviced Apartment with Lake View"
+                    value={submitForm.title}
+                    onChange={e => setSubmitForm(prev => ({ ...prev, title: e.target.value }))}
+                    required
+                    style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                  />
+                </div>
+
+                <div className="form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Property Category *</label>
+                    <select
+                      value={submitForm.type}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, type: e.target.value }))}
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, background: "#fff" }}
+                    >
+                      {Object.keys(TYPE_META).map(k => (
+                        <option key={k} value={k}>{TYPE_META[k].label || k}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Abuja District *</label>
+                    <select
+                      value={submitForm.district}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, district: e.target.value }))}
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, background: "#fff" }}
+                    >
+                      {["Jabi", "Guzape", "Wuse 2", "Maitama", "Katampe", "Lugbe", "Kubwa", "Apo", "Kuje", "Gwarinpa", "Idu Industrial", "Bwari"].map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Asking Price (₦) *</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 75000000"
+                      value={submitForm.price}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, price: e.target.value }))}
+                      required
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Title Document *</label>
+                    <select
+                      value={submitForm.titleDoc}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, titleDoc: e.target.value }))}
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, background: "#fff" }}
+                    >
+                      <option value="C of O">C of O (Certificate of Occupancy)</option>
+                      <option value="R of O">R of O (Right of Occupancy)</option>
+                      <option value="Area Council">Area Council Papers</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-3col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Size Desc *</label>
+                    <input
+                      type="text"
+                      placeholder="3 beds · 185 sqm"
+                      value={submitForm.size}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, size: e.target.value }))}
+                      required
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Sqm Size *</label>
+                    <input
+                      type="number"
+                      placeholder="185"
+                      value={submitForm.sqm}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, sqm: e.target.value }))}
+                      required
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Plots Count</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 10 (optional)"
+                      value={submitForm.plots}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, plots: e.target.value }))}
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Suitable Purpose tags *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. shortlet, residence, investment"
+                      value={submitForm.purpose}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, purpose: e.target.value }))}
+                      required
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Listing Agent *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Barr. A. Musa & Co."
+                      value={submitForm.agent}
+                      onChange={e => setSubmitForm(prev => ({ ...prev, agent: e.target.value }))}
+                      required
+                      style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Key Features (comma-separated) *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 24/7 power, Pool, Fitted kitchen, Elevator"
+                    value={submitForm.features}
+                    onChange={e => setSubmitForm(prev => ({ ...prev, features: e.target.value }))}
+                    required
+                    style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Property Description *</label>
+                  <textarea
+                    placeholder="Provide full description details for marketing..."
+                    value={submitForm.description}
+                    onChange={e => setSubmitForm(prev => ({ ...prev, description: e.target.value }))}
+                    required
+                    rows={3}
+                    style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, resize: "none", fontFamily: "'Instrument Sans'" }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={!user || submitting}
+                  style={{
+                    background: user ? T.green : T.sub,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 10,
+                    padding: 13,
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: user && !submitting ? "pointer" : "not-allowed",
+                    marginTop: 8,
+                    opacity: submitting ? 0.7 : 1
+                  }}
+                >
+                  {submitting ? "Submitting to database..." : "Publish verified listing to marketplace"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

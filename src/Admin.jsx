@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { db } from "./lib/firebase";
+import { collection, query, orderBy, limit, getDocs, getCountFromServer, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore";
+
 
 /* ============================================================
-   ADMIN PANEL — The Landlord Property AI
+   ADMIN PANEL — The Landlord Property
    PIN-gated. Full deal CRUD. Status pipeline. localStorage.
    ============================================================ */
 
@@ -186,37 +189,65 @@ const PinGate = ({ onUnlock }) => {
   const [dots, setDots] = useState([false, false, false, false]);
 
   const handleDigit = (d) => {
-    if (pin.length >= 4) return;
-    const next = pin + d;
-    setPin(next);
-    const newDots = [false, false, false, false].map((_, i) => i < next.length);
-    setDots(newDots);
-    if (next.length === 4) {
-      if (next === ADMIN_PIN) {
-        setTimeout(() => onUnlock(), 200);
-      } else {
-        setTimeout(() => {
-          setShake(true);
-          setTimeout(() => { setShake(false); setPin(""); setDots([false,false,false,false]); }, 400);
-        }, 100);
+    setPin((prev) => {
+      if (prev.length >= 4) return prev;
+      const next = prev + d;
+      setDots([false, false, false, false].map((_, i) => i < next.length));
+      if (next.length === 4) {
+        if (next === ADMIN_PIN) {
+          setTimeout(() => onUnlock(), 200);
+        } else {
+          setTimeout(() => {
+            setShake(true);
+            setTimeout(() => {
+              setShake(false);
+              setPin("");
+              setDots([false, false, false, false]);
+            }, 400);
+          }, 100);
+        }
       }
-    }
+      return next;
+    });
   };
 
   const handleBack = () => {
-    const next = pin.slice(0, -1);
-    setPin(next);
-    setDots([false,false,false,false].map((_,i) => i < next.length));
+    setPin((prev) => {
+      const next = prev.slice(0, -1);
+      setDots([false, false, false, false].map((_, i) => i < next.length));
+      return next;
+    });
   };
 
-  const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+  // Wire up physical keyboard inputs (numbers + backspace)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key >= "0" && e.key <= "9") {
+        handleDigit(e.key);
+      } else if (e.key === "Backspace") {
+        handleBack();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 
   return (
-    <div style={{ minHeight: "100vh", background: T.ink, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 32, padding: 24 }}>
+    <div style={{ minHeight: "100vh", background: T.ink, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 28, padding: 24 }}>
       <div style={{ textAlign: "center" }}>
-        <div style={{ width: 52, height: 52, borderRadius: 14, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 24, color: "#fff" }}>
-          L
-        </div>
+        <img
+          src="/logo_mark.png"
+          alt="The Landlord Property"
+          style={{
+            height: 56,
+            width: "auto",
+            objectFit: "contain",
+            display: "block",
+            margin: "0 auto 16px",
+          }}
+        />
         <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: "#fff" }}>Admin Panel</div>
         <div style={{ fontSize: 13, color: "rgba(255,255,255,.55)", marginTop: 4 }}>Enter your 4-digit PIN</div>
       </div>
@@ -224,36 +255,55 @@ const PinGate = ({ onUnlock }) => {
       {/* dots */}
       <div style={{ display: "flex", gap: 16, animation: shake ? "shake .3s ease" : "none" }}>
         {dots.map((filled, i) => (
-          <div key={i} style={{ width: 16, height: 16, borderRadius: "50%", background: filled ? T.gold : "rgba(255,255,255,.2)", transition: "background .15s ease" }} />
+          <div
+            key={i}
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: "50%",
+              boxSizing: "border-box",
+              border: filled ? `2px solid ${T.gold}` : "2px solid rgba(255, 255, 255, 0.7)",
+              background: filled ? T.gold : "transparent",
+              transition: "background .15s ease, border-color .15s ease",
+            }}
+          />
         ))}
       </div>
 
       {/* keypad */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 72px)", gap: 12 }}>
-        {keys.map((k, i) => (
-          <button
-            key={i}
-            onClick={() => k === "⌫" ? handleBack() : k ? handleDigit(k) : null}
-            style={{
-              height: 64,
-              borderRadius: 14,
-              border: "none",
-              background: k === "" ? "transparent" : k === "⌫" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.1)",
-              color: "#fff",
-              fontSize: k === "⌫" ? 20 : 22,
-              fontWeight: 600,
-              cursor: k ? "pointer" : "default",
-              fontFamily: "'Bricolage Grotesque'",
-              transition: "background .1s ease",
-            }}
-            onMouseEnter={(e) => k && (e.target.style.background = "rgba(255,255,255,.18)")}
-            onMouseLeave={(e) => k && (e.target.style.background = k === "⌫" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.1)")}
-          >
-            {k}
-          </button>
-        ))}
+        {keys.map((k, i) => {
+          if (k === "") {
+            return <div key={i} style={{ height: 64 }} />;
+          }
+          return (
+            <button
+              key={i}
+              onClick={() => k === "⌫" ? handleBack() : handleDigit(k)}
+              style={{
+                height: 64,
+                borderRadius: 14,
+                border: "none",
+                background: k === "⌫" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.1)",
+                color: "#fff",
+                fontSize: k === "⌫" ? 20 : 22,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "'Instrument Sans', sans-serif",
+                transition: "background .1s ease",
+              }}
+              onMouseEnter={(e) => (e.target.style.background = "rgba(255,255,255,.18)")}
+              onMouseLeave={(e) => (e.target.style.background = k === "⌫" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.1)")}
+            >
+              {k}
+            </button>
+          );
+        })}
       </div>
-      <div style={{ fontSize: 12, color: "rgba(255,255,255,.3)" }}>Demo PIN: 1234</div>
+
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,.45)", letterSpacing: 0.8, textTransform: "uppercase", marginTop: 4 }}>
+        or type your PIN
+      </div>
 
       <style>{`
         @keyframes shake {
@@ -272,9 +322,37 @@ const PinGate = ({ onUnlock }) => {
 
 const DealFormModal = ({ deal, onSave, onClose }) => {
   const [form, setForm] = useState({ ...EMPTY_DEAL, ...deal });
+  const [descLoading, setDescLoading] = useState(false);
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const hasShortlet = form.type !== "Land";
+
+  const generateDescription = async () => {
+    setDescLoading(true);
+    try {
+      const res = await fetch('/api/describe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          district: form.district,
+          type: form.type,
+          asking: form.asking,
+          market: form.market,
+          title: form.title,
+          features: form.shortlet_nightly ? `Shortlet nightly: ₦${Number(form.shortlet_nightly).toLocaleString()}` : '',
+          agis: form.agis,
+          urgency: form.urgency,
+        }),
+      });
+      const data = await res.json();
+      if (data.description) set('notes', data.description);
+    } catch {
+      // silently fail
+    } finally {
+      setDescLoading(false);
+    }
+  };
 
   const handleSave = () => {
     if (!form.name.trim() || !form.district.trim()) return alert("Name and district are required.");
@@ -453,17 +531,43 @@ const DealFormModal = ({ deal, onSave, onClose }) => {
             </Select>
           </G>
 
-          <G label="Internal Notes">
+          <div style={{ gridColumn: "span 2" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+              <Label>Listing Description / Internal Notes</Label>
+              <button
+                type="button"
+                id="ai-generate-description-btn"
+                onClick={generateDescription}
+                disabled={descLoading || !form.name}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  background: descLoading ? T.paper : `linear-gradient(135deg, ${T.green}, ${T.greenDark})`,
+                  color: descLoading ? T.sub : "#fff",
+                  border: `1px solid ${descLoading ? T.line : "transparent"}`,
+                  borderRadius: 8, padding: "5px 11px",
+                  fontSize: 11.5, fontWeight: 700, cursor: descLoading || !form.name ? "not-allowed" : "pointer",
+                  transition: "all .15s ease", whiteSpace: "nowrap",
+                }}
+              >
+                {descLoading ? (
+                  <>
+                    <span style={{ width: 10, height: 10, border: `2px solid ${T.line}`, borderTopColor: T.green, borderRadius: "50%", display: "inline-block", animation: "spin .7s linear infinite" }} />
+                    Generating…
+                  </>
+                ) : "✦ Generate with AI"}
+              </button>
+            </div>
             <textarea
               value={form.notes}
               onChange={(e) => set("notes", e.target.value)}
-              placeholder="Internal team notes — not visible to buyers"
-              rows={3}
+              placeholder="Enter notes or click ✦ Generate with AI to auto-write a listing description"
+              rows={4}
               style={{ width: "100%", border: `1.5px solid ${T.line}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, fontFamily: "'Instrument Sans', sans-serif", color: T.ink, resize: "vertical", outline: "none" }}
               onFocus={(e) => (e.target.style.borderColor = T.green)}
               onBlur={(e) => (e.target.style.borderColor = T.line)}
             />
-          </G>
+          </div>
+
         </div>
 
         {/* Actions */}
@@ -489,10 +593,522 @@ const StatCard = ({ label, value, color = T.ink, sub }) => (
 
 /* ---------- Main Admin Panel ---------- */
 
+/* ──────────────────────────────────────────────
+   Analytics Tab Component
+   ────────────────────────────────────────────── */
+
+const AnalyticsView = ({ deals }) => {
+  const [kpis, setKpis] = useState({ users: 0, buyers: 0, sellers: 0, notifications: 0, matched: 0 });
+  const [notifications, setNotifications] = useState([]);
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        // Fetch KPI counts from Firestore
+        const [usersSnap, notifSnap, logsSnap, buyerSnap, matchedSnap] = await Promise.all([
+          getDocs(query(collection(db, "users"), limit(200))),
+          getDocs(query(collection(db, "notifications"), orderBy("createdAt", "desc"), limit(50))),
+          getDocs(query(collection(db, "activity_logs"), orderBy("createdAt", "desc"), limit(30))),
+          getDocs(query(collection(db, "users"), limit(200))),
+          getDocs(query(collection(db, "activity_logs"), limit(200))),
+        ]);
+
+        const allUsers = usersSnap.docs.map(d => d.data());
+        const buyers = allUsers.filter(u => u.role === "buyer" || u.buyer === true).length;
+        const sellers = allUsers.filter(u => u.role === "seller" || u.role === "distress_seller").length;
+        const matched = matchedSnap.docs.filter(d => d.data().action === "property_matched").length;
+
+        setKpis({
+          users: allUsers.length,
+          buyers,
+          sellers,
+          notifications: notifSnap.size,
+          matched,
+        });
+
+        setNotifications(notifSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setActivityLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.warn("[Analytics] Could not load from Firestore:", err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  const avgTrust = deals.length
+    ? Math.round(deals.reduce((s, d) => s + (Number(d.trust) || 0), 0) / deals.length)
+    : 0;
+
+  // District distribution
+  const districtCounts = {};
+  deals.forEach(d => {
+    if (d.district) districtCounts[d.district] = (districtCounts[d.district] || 0) + 1;
+  });
+  const districtEntries = Object.entries(districtCounts).sort((a, b) => b[1] - a[1]);
+  const maxDistrictCount = Math.max(...districtEntries.map(e => e[1]), 1);
+
+  // Trust score bins
+  const trustBins = [
+    { label: "85-100 (Strong)", count: deals.filter(d => d.trust >= 85).length, color: T.green },
+    { label: "70-84 (Good)", count: deals.filter(d => d.trust >= 70 && d.trust < 85).length, color: T.gold },
+    { label: "0-69 (Caution)", count: deals.filter(d => d.trust < 70).length, color: T.amber },
+  ];
+  const maxTrustBin = Math.max(...trustBins.map(b => b.count), 1);
+
+  // Pipeline data
+  const pipelineCounts = STATUS_FLOW.map(s => ({
+    label: s,
+    count: deals.filter(d => d.status === s).length,
+  }));
+  const maxPipelineCount = Math.max(...pipelineCounts.map(p => p.count), 1);
+
+  const fmtTime = (ts) => {
+    if (!ts) return "—";
+    try {
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return d.toLocaleString("en-NG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    } catch { return "—"; }
+  };
+
+  const channelIcon = (type) => ({ email: "📧", sms: "📱", whatsapp: "💬" }[type] || "🔔");
+  const actionColor = (action) => (
+    action === "account_created" ? T.green
+    : action === "user_logged_in" ? T.teal
+    : action === "property_matched" ? T.gold
+    : T.sub
+  );
+
+  const KpiCard = ({ label, value, icon, color = T.ink, sub }) => (
+    <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: "18px 20px", flex: "1 1 140px", minWidth: 140 }}>
+      <div style={{ fontSize: 22, marginBottom: 6 }}>{icon}</div>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.sub, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 32, color, lineHeight: 1 }}>
+        {loading ? <span style={{ fontSize: 20, color: T.line }}>…</span> : value}
+      </div>
+      {sub && <div style={{ fontSize: 11.5, color: T.sub, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "0 0 60px" }}>
+      {/* Analytics hero */}
+      <div style={{
+        background: `linear-gradient(135deg, ${T.ink} 0%, #0A3420 60%, ${T.teal}44 100%)`,
+        borderRadius: 18,
+        padding: "28px 24px",
+        marginBottom: 24,
+        position: "relative",
+        overflow: "hidden",
+      }}>
+        <div style={{ position: "absolute", right: -60, top: -60, width: 220, height: 220, borderRadius: "50%", background: "rgba(201,162,39,.07)" }} />
+        <div style={{ position: "absolute", left: "40%", bottom: -60, width: 180, height: 180, borderRadius: "50%", background: "rgba(14,107,117,.1)" }} />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 8 }}>Live Analytics Dashboard</div>
+          <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 26, color: "#fff", marginBottom: 6 }}>Portfolio Intelligence</div>
+          <div style={{ fontSize: 13.5, color: "rgba(255,255,255,.7)" }}>Real-time data from Firestore · {deals.length} deals managed</div>
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+        <KpiCard label="Registered Users" value={kpis.users} icon="👥" color={T.green} sub="All-time signups" />
+        <KpiCard label="Active Buyers" value={kpis.buyers} icon="🏠" color={T.teal} sub="Role: buyer" />
+        <KpiCard label="Sellers" value={kpis.sellers} icon="🏷" color={T.gold} />
+        <KpiCard label="Notifications Sent" value={kpis.notifications} icon="🔔" color={T.amber} sub="Last 50" />
+        <KpiCard label="AI Matches" value={kpis.matched} icon="🤖" color="#6B3FA0" sub="Buyer-property matches" />
+        <KpiCard label="Avg Trust Score" value={`${avgTrust}/100`} icon="🛡️" color={avgTrust >= 85 ? T.green : avgTrust >= 70 ? T.gold : T.amber} sub="Deal portfolio" />
+      </div>
+
+      {/* Two-column layout for charts */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20, marginBottom: 24 }}>
+
+        {/* Pipeline Funnel */}
+        <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.green, marginBottom: 16 }}>Deal Pipeline Funnel</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {pipelineCounts.map(({ label, count }, i) => {
+              const st = STATUS_STYLE[label];
+              const pct = Math.round((count / maxPipelineCount) * 100);
+              return (
+                <div key={label}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600, marginBottom: 5, color: T.ink }}>
+                    <span>{label}</span>
+                    <span style={{ color: st?.color }}>{count} deal{count !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div style={{ height: 10, background: T.paper, borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${pct}%`,
+                      background: st?.color || T.green,
+                      borderRadius: 99,
+                      transition: "width .8s cubic-bezier(.22,1,.36,1)",
+                      minWidth: count > 0 ? 6 : 0,
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Trust Score Distribution */}
+        <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.green, marginBottom: 16 }}>Trust Score Distribution</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {trustBins.map(({ label, count, color }) => (
+              <div key={label}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600, marginBottom: 5 }}>
+                  <span style={{ color: T.ink }}>{label}</span>
+                  <span style={{ color }}>{count}</span>
+                </div>
+                <div style={{ height: 10, background: T.paper, borderRadius: 99, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.round((count / maxTrustBin) * 100)}%`, background: color, borderRadius: 99, transition: "width .8s .1s cubic-bezier(.22,1,.36,1)", minWidth: count > 0 ? 6 : 0 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 14, marginTop: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.teal, marginBottom: 12 }}>District Distribution</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 180, overflowY: "auto" }}>
+              {districtEntries.map(([district, count]) => (
+                <div key={district} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.ink, minWidth: 90 }}>{district}</div>
+                  <div style={{ flex: 1, height: 8, background: T.paper, borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.round((count / maxDistrictCount) * 100)}%`, background: T.teal, borderRadius: 99, transition: "width .8s .2s ease" }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: T.sub, minWidth: 16, textAlign: "right" }}>{count}</div>
+                </div>
+              ))}
+              {districtEntries.length === 0 && <div style={{ fontSize: 13, color: T.sub }}>No district data yet.</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Notification History Table */}
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, overflow: "hidden", marginBottom: 20 }}>
+        <div style={{ background: T.mint, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.green }}>🔔 Notification History (last 50)</div>
+          {loading && <div style={{ fontSize: 12, color: T.sub }}>Loading…</div>}
+        </div>
+        {notifications.length === 0 && !loading && (
+          <div style={{ padding: "24px", textAlign: "center", color: T.sub, fontSize: 13.5 }}>No notifications yet. Start the emulators and register a user to see data here.</div>
+        )}
+        {notifications.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: T.paper }}>
+                  {["Channel", "Email", "Title", "Sent At", "Read"].map(h => (
+                    <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: T.sub, whiteSpace: "nowrap", borderBottom: `1px solid ${T.line}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {notifications.map((n, i) => (
+                  <tr key={n.id} style={{ borderBottom: i < notifications.length - 1 ? `1px solid ${T.line}` : "none" }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.paper}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                      <span style={{ fontSize: 16 }}>{channelIcon(n.type)}</span>
+                      <span style={{ fontSize: 11, marginLeft: 4, color: T.sub }}>{n.type}</span>
+                    </td>
+                    <td style={{ padding: "10px 14px", color: T.sub, fontSize: 12, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.email || "—"}</td>
+                    <td style={{ padding: "10px 14px", fontWeight: 600, color: T.ink, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.title}</td>
+                    <td style={{ padding: "10px 14px", color: T.sub, fontSize: 12, whiteSpace: "nowrap" }}>{fmtTime(n.createdAt)}</td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <span style={{
+                        background: n.read ? T.mint : T.riskSoft,
+                        color: n.read ? T.green : T.risk,
+                        borderRadius: 99,
+                        padding: "2px 8px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}>{n.read ? "✓ Read" : "● Unread"}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Activity Log */}
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, overflow: "hidden" }}>
+        <div style={{ background: T.tealSoft, padding: "14px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.teal }}>📋 Activity Log (last 30)</div>
+        </div>
+        {activityLogs.length === 0 && !loading && (
+          <div style={{ padding: "24px", textAlign: "center", color: T.sub, fontSize: 13.5 }}>No activity logs yet. Run Cloud Functions triggers to populate this feed.</div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {activityLogs.map((log, i) => (
+            <div key={log.id} style={{
+              padding: "12px 18px",
+              borderBottom: i < activityLogs.length - 1 ? `1px solid ${T.line}` : "none",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 12,
+            }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: actionColor(log.action), flexShrink: 0, marginTop: 5 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{(log.action || "").replace(/_/g, " ").toUpperCase()}</div>
+                <div style={{ fontSize: 12, color: T.sub, marginTop: 2, lineHeight: 1.4 }}>{log.details}</div>
+              </div>
+              <div style={{ fontSize: 11, color: T.sub, whiteSpace: "nowrap", flexShrink: 0 }}>{fmtTime(log.createdAt)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+/* ──────────────────────────────────────────────
+   Offers Tab Component
+   ────────────────────────────────────────────── */
+const OffersView = ({ showToast }) => {
+  const [offers, setOffers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [counterId, setCounterId] = useState(null); // id of offer being countered
+  const [counterPrice, setCounterPrice] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    const q = query(collection(db, "offers"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list = [];
+      snapshot.forEach((d) => {
+        list.push({ id: d.id, ...d.data() });
+      });
+      setOffers(list);
+      setLoading(false);
+    }, (err) => {
+      console.warn("[Admin OffersView] Firestore query error:", err.message);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  const handleUpdateStatus = async (offer, status, extraData = {}) => {
+    try {
+      const offerRef = doc(db, "offers", offer.id);
+      const updatePayload = { status, ...extraData };
+      await updateDoc(offerRef, updatePayload);
+
+      // Create notification for the buyer
+      const notifRef = collection(db, "notifications");
+      let message = "";
+      if (status === "Accepted") {
+        message = `🏡 Congratulations! Your offer of ₦${offer.offerPrice.toLocaleString()} on "${offer.dealName}" has been ACCEPTED by the seller.\n\nOur team is initializing the escrow process. We will reach out to you shortly via WhatsApp.`;
+      } else if (status === "Declined") {
+        message = `💼 Update on your offer for "${offer.dealName}". The seller has declined your offer of ₦${offer.offerPrice.toLocaleString()}.\n\nExplore other distress deals on the dashboard: thelandlordproperty.com`;
+      } else if (status === "Counter-Offer") {
+        message = `🤝 Counter-Offer Received!\n\nThe seller has proposed a counter-offer of ₦${extraData.counterPrice.toLocaleString()} for "${offer.dealName}".\n\nPlease log in to review and respond.`;
+      }
+
+      await addDoc(notifRef, {
+        userId: offer.userId,
+        type: "whatsapp",
+        email: offer.userEmail || "",
+        status: "sent",
+        sent: true,
+        title: `Offer Update: ${status}`,
+        message,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+
+      // Log activity
+      await addDoc(collection(db, "activity_logs"), {
+        userId: offer.userId,
+        action: `offer_${status.toLowerCase().replace("-", "_")}`,
+        details: `Admin marked offer ${offer.id} as ${status}.${extraData.counterPrice ? ` Counter Price: ₦${extraData.counterPrice.toLocaleString()}` : ""}`,
+        createdAt: serverTimestamp(),
+      });
+
+      showToast(`Offer ${status.toLowerCase()} successfully!`);
+    } catch (err) {
+      console.error("[Admin OffersView] Failed to update offer:", err);
+      showToast("Error updating offer status.", T.risk);
+    }
+  };
+
+  const fmtM = (n) => {
+    if (!n) return "—";
+    return "₦" + Number(n).toLocaleString();
+  };
+
+  const badgeStyle = (status) => {
+    switch (status) {
+      case "Accepted": return { bg: T.mint, color: T.green };
+      case "Declined": return { bg: T.riskSoft, color: T.risk };
+      case "Counter-Offer": return { bg: T.goldSoft, color: "#8A6D0B" };
+      default: return { bg: T.tealSoft, color: T.teal };
+    }
+  };
+
+  return (
+    <div style={{ padding: "0 0 60px" }}>
+      <div style={{
+        background: `linear-gradient(135deg, ${T.ink} 0%, #1A3E31 100%)`,
+        borderRadius: 18,
+        padding: "28px 24px",
+        marginBottom: 24,
+        position: "relative",
+        overflow: "hidden",
+      }}>
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 8 }}>Buyer Offers &amp; Negotiations</div>
+          <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 26, color: "#fff", marginBottom: 6 }}>Active Offers</div>
+          <div style={{ fontSize: 13.5, color: "rgba(255,255,255,.7)" }}>Review, accept, decline or make counter-proposals to buyers.</div>
+        </div>
+      </div>
+
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, overflow: "hidden" }}>
+        <div style={{ background: T.mint, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.green }}>📋 Active Offers ({offers.length})</div>
+          {loading && <div style={{ fontSize: 12, color: T.sub }}>Loading…</div>}
+        </div>
+
+        {offers.length === 0 && !loading && (
+          <div style={{ padding: "32px", textAlign: "center", color: T.sub, fontSize: 13.5 }}>
+            No buyer offers received yet.
+          </div>
+        )}
+
+        {offers.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {offers.map((offer, i) => {
+              const disc = Math.round(((offer.askingPrice - offer.offerPrice) / offer.askingPrice) * 100);
+              const bs = badgeStyle(offer.status);
+              const isPending = offer.status === "Submitted";
+              const isCounter = offer.status === "Counter-Offer";
+
+              return (
+                <div key={offer.id} style={{
+                  padding: "20px 24px",
+                  borderBottom: i < offers.length - 1 ? `1px solid ${T.line}` : "none",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  background: isPending ? "#FBFDFB" : "#fff",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = isPending ? "#F7FAF7" : T.paper}
+                onMouseLeave={e => e.currentTarget.style.background = isPending ? "#FBFDFB" : "#fff"}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+                    <div>
+                      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 16.5, color: T.ink }}>
+                        {offer.dealName}
+                      </div>
+                      <div style={{ fontSize: 12.5, color: T.sub, marginTop: 3 }}>
+                        📍 {offer.district} · Buyer: <strong>{offer.userName}</strong> ({offer.userEmail})
+                      </div>
+                    </div>
+                    <span style={{
+                      background: bs.bg, color: bs.color, borderRadius: 999,
+                      padding: "4px 12px", fontSize: 11.5, fontWeight: 700
+                    }}>
+                      {offer.status}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, margin: "6px 0", background: T.paper, padding: 12, borderRadius: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: T.sub, fontWeight: 700, textTransform: "uppercase" }}>Offer Price</div>
+                      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: T.green }}>{fmtM(offer.offerPrice)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: T.sub, fontWeight: 700, textTransform: "uppercase" }}>Asking Price</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: T.ink, marginTop: 2 }}>{fmtM(offer.askingPrice)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: T.sub, fontWeight: 700, textTransform: "uppercase" }}>Discount Below Asking</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: T.amber, marginTop: 2 }}>−{disc}%</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: T.sub, fontWeight: 700, textTransform: "uppercase" }}>Financing &amp; Close</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, marginTop: 3 }}>
+                        {offer.financing.charAt(0).toUpperCase() + offer.financing.slice(1)} · {offer.timeline} Days
+                      </div>
+                    </div>
+                  </div>
+
+                  {offer.note && (
+                    <div style={{ fontStyle: "italic", fontSize: 12.5, color: T.sub, background: T.card, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.line}` }}>
+                      📝 "{offer.note}"
+                    </div>
+                  )}
+
+                  {/* Counter offer info */}
+                  {offer.counterPrice && (
+                    <div style={{ background: T.goldSoft, border: `1px solid ${T.gold}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: "#8A6D0B", fontWeight: 600 }}>
+                      🤝 Proferred counter-offer: <strong>{fmtM(offer.counterPrice)}</strong>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  {(isPending || isCounter) && (
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+                      <Btn small kind="primary" onClick={() => handleUpdateStatus(offer, "Accepted")}>✓ Accept Offer</Btn>
+                      <Btn small kind="danger" onClick={() => handleUpdateStatus(offer, "Declined")}>✕ Decline Offer</Btn>
+                      
+                      {counterId !== offer.id ? (
+                        <Btn small kind="teal" onClick={() => { setCounterId(offer.id); setCounterPrice(String(Math.round(offer.askingPrice * 0.98))); }}>
+                          🤝 Make Counter-Offer
+                        </Btn>
+                      ) : (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", background: T.paper, padding: "4px 8px", borderRadius: 8 }}>
+                          <input
+                            type="number"
+                            value={counterPrice}
+                            onChange={e => setCounterPrice(e.target.value)}
+                            placeholder="Counter Price (₦)"
+                            style={{ padding: "6px 10px", border: `1.5px solid ${T.line}`, borderRadius: 6, fontSize: 12.5, width: 150 }}
+                          />
+                          <Btn small kind="teal" onClick={() => {
+                            if (!counterPrice) return;
+                            handleUpdateStatus(offer, "Counter-Offer", { counterPrice: Number(counterPrice) });
+                            setCounterId(null);
+                          }}>
+                            Submit Counter
+                          </Btn>
+                          <button onClick={() => setCounterId(null)} style={{ border: "none", background: "none", color: T.sub, cursor: "pointer", fontSize: 12.5 }}>Cancel</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+/* ──────────────────────────────────────────────
+   Main Admin Panel
+   ────────────────────────────────────────────── */
+
+
 export default function Admin({ initialDeals, onDealsChange, onBack }) {
   const [unlocked, setUnlocked] = useState(false);
+  const [adminTab, setAdminTab] = useState("deals"); // "deals" | "analytics"
   const [deals, setDeals] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("lp_admin_deals")) || initialDeals; }
+    try { return JSON.parse(localStorage.getItem("lp_admin_deals_v2")) || initialDeals; }
     catch { return initialDeals; }
   });
   const [modal, setModal] = useState(null); // null | "new" | {deal object}
@@ -500,10 +1116,11 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmAdvance, setConfirmAdvance] = useState(null);
 
   // Persist to localStorage and notify parent
   useEffect(() => {
-    localStorage.setItem("lp_admin_deals", JSON.stringify(deals));
+    localStorage.setItem("lp_admin_deals_v2", JSON.stringify(deals));
     onDealsChange && onDealsChange(deals);
   }, [deals]);
 
@@ -533,6 +1150,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
     if (idx >= STATUS_FLOW.length - 1) return;
     const newStatus = STATUS_FLOW[idx + 1];
     setDeals((prev) => prev.map((d) => d.id === deal.id ? { ...d, status: newStatus } : d));
+    setConfirmAdvance(null);
     showToast(`${deal.name.split(",")[0]} → ${newStatus}`);
   };
 
@@ -554,6 +1172,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
 
   if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
 
+
   return (
     <div style={{ minHeight: "100vh", background: T.paper, fontFamily: "'Instrument Sans', system-ui, sans-serif", color: T.ink }}>
       <style>{`
@@ -562,6 +1181,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
         button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid ${T.gold}; outline-offset: 2px; }
         ::-webkit-scrollbar { height: 6px; width: 6px; }
         ::-webkit-scrollbar-thumb { background: ${T.line}; border-radius: 99px; }
+        @keyframes slideup { from { transform: translateY(6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
       `}</style>
 
       {/* Top bar */}
@@ -576,12 +1196,49 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
               <div style={{ fontSize: 10.5, color: T.sub, letterSpacing: 1.2, fontWeight: 600 }}>DEAL MANAGEMENT PANEL</div>
             </div>
           </div>
+
+          {/* Admin Tab Switcher */}
+          <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,.7)", border: `1.5px solid ${T.line}`, borderRadius: 12, padding: 3 }}>
+            {[["deals", "📋", "Deal Management"], ["offers", "🤝", "Buyer Offers"], ["analytics", "📊", "Analytics"]].map(([k, icon, label]) => (
+              <button
+                key={k}
+                onClick={() => setAdminTab(k)}
+                style={{
+                  border: "none",
+                  borderRadius: 9,
+                  padding: "7px 14px",
+                  fontSize: 12.5,
+                  fontWeight: adminTab === k ? 700 : 600,
+                  cursor: "pointer",
+                  background: adminTab === k ? (k === "analytics" ? T.teal : k === "offers" ? "#6B3FA0" : T.ink) : "transparent",
+                  color: adminTab === k ? "#fff" : T.sub,
+                  transition: "all .18s ease",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+              >
+                <span>{icon}</span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+
           <Btn kind="ghost" small onClick={onBack}>← Back to App</Btn>
-          <Btn kind="primary" small onClick={() => setModal("new")}>+ New Deal</Btn>
+          {adminTab === "deals" && <Btn kind="primary" small onClick={() => setModal("new")}>+ New Deal</Btn>}
         </div>
       </header>
 
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: "20px 20px 80px" }}>
+
+        {/* Offers tab */}
+        {adminTab === "offers" && <OffersView showToast={showToast} />}
+
+        {/* Analytics tab */}
+        {adminTab === "analytics" && <AnalyticsView deals={deals} />}
+
+        {/* Deal management tab content */}
+        {adminTab === "deals" && <>
 
         {/* Stats row */}
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 22 }}>
@@ -638,12 +1295,12 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
         {/* Deal table */}
         <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, overflow: "hidden" }}>
           {/* Table header */}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 160px", gap: 0, background: T.mint, padding: "10px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.green }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1fr 1.3fr 1fr 210px", gap: 0, background: T.mint, padding: "10px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.green }}>
             <div>Property</div>
-            <div>Asking</div>
-            <div>Discount</div>
-            <div>Trust</div>
-            <div>Title</div>
+            <div style={{ textAlign: "right", paddingRight: 8 }}>Asking</div>
+            <div style={{ textAlign: "right", paddingRight: 8 }}>Discount</div>
+            <div style={{ textAlign: "right", paddingRight: 8 }}>Trust</div>
+            <div>Title &amp; Grade</div>
             <div>Status</div>
             <div style={{ textAlign: "right" }}>Actions</div>
           </div>
@@ -669,7 +1326,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
                 key={deal.id}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 160px",
+                  gridTemplateColumns: "2fr 1.2fr 1fr 1fr 1.3fr 1fr 210px",
                   gap: 0,
                   padding: "13px 16px",
                   alignItems: "center",
@@ -686,29 +1343,32 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
                   {deal.notes && <div style={{ fontSize: 11, color: T.gold, marginTop: 2, fontStyle: "italic" }}>📝 {deal.notes.slice(0,50)}{deal.notes.length>50?"…":""}</div>}
                 </div>
                 {/* Asking */}
-                <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 14, color: T.ink }}>{fmtM(deal.asking)}</div>
+                <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 14, color: T.ink, textAlign: "right", paddingRight: 8 }}>{fmtM(deal.asking)}</div>
                 {/* Discount */}
-                <div style={{ fontWeight: 700, fontSize: 13.5, color: T.amber }}>−{disc}%</div>
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: T.amber, textAlign: "right", paddingRight: 8 }}>−{disc}%</div>
                 {/* Trust */}
-                <div>
+                <div style={{ textAlign: "right", paddingRight: 8 }}>
                   <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 16, color: trustColor }}>{deal.trust}</span>
                   <span style={{ fontSize: 11, color: T.sub }}>/100</span>
                 </div>
-                {/* Title */}
-                <div style={{ fontSize: 12, fontWeight: 600, color: deal.titleGrade === "A" ? T.green : deal.titleGrade === "B" ? "#8A6D0B" : T.amber }}>
-                  Grade {deal.titleGrade}
+                {/* Title & Grade */}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 12.5, color: T.ink }}>{deal.title || "Unspecified"}</div>
+                  <div style={{ fontSize: 11, color: deal.titleGrade === "A" ? T.green : deal.titleGrade === "B" ? "#8A6D0B" : T.amber, fontWeight: 700, marginTop: 2 }}>
+                    Grade {deal.titleGrade}
+                  </div>
                 </div>
                 {/* Status */}
                 <div><StatusPill status={deal.status} /></div>
                 {/* Actions */}
                 <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                   {nextStatus && (
-                    <Btn small kind="teal" onClick={() => advanceStatus(deal)} style={{ fontSize: 11, padding: "5px 10px" }}>
+                    <Btn small kind="ghost" onClick={() => setConfirmAdvance(deal)} style={{ fontSize: 11, padding: "5px 10px", borderColor: T.teal, color: T.teal }}>
                       → {nextStatus}
                     </Btn>
                   )}
                   <Btn small kind="ghost" onClick={() => setModal(deal)} style={{ fontSize: 11, padding: "5px 10px" }}>Edit</Btn>
-                  <Btn small kind="danger" onClick={() => setConfirmDelete(deal)} style={{ fontSize: 11, padding: "5px 10px" }}>Del</Btn>
+                  <Btn small kind="danger" onClick={() => setConfirmDelete(deal)} style={{ fontSize: 11, padding: "5px 10px" }}>Delete</Btn>
                 </div>
               </div>
             );
@@ -726,9 +1386,10 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
               </span>
             );
           })}
-          <span>· Use "→ Next" to advance deal through the pipeline</span>
+          <span>· Use the "→ [Status]" action button to advance a deal through the pipeline (requires confirmation)</span>
         </div>
 
+        </> /* end deals tab */}
       </main>
 
       {/* Modals */}
@@ -755,6 +1416,25 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
           </div>
         </div>
       )}
+
+      {/* Confirm pipeline advance */}
+      {confirmAdvance && (() => {
+        const next = STATUS_FLOW[STATUS_FLOW.indexOf(confirmAdvance.status) + 1];
+        return (
+          <div onClick={() => setConfirmAdvance(null)} style={{ position: "fixed", inset: 0, background: "rgba(12,43,31,.45)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 24, maxWidth: 400, width: "100%" }}>
+              <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: T.teal, marginBottom: 10 }}>Advance status?</div>
+              <div style={{ fontSize: 13.5, color: T.ink, lineHeight: 1.5 }}>
+                Advance status of <b>{confirmAdvance.name.split(",")[0]}</b> from <span style={{ fontWeight: 700 }}>{confirmAdvance.status}</span> to <span style={{ fontWeight: 700, color: T.green }}>{next}</span>?
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+                <Btn kind="ghost" onClick={() => setConfirmAdvance(null)}>Cancel</Btn>
+                <Btn kind="teal" onClick={() => advanceStatus(confirmAdvance)}>Confirm Advance</Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Toast */}
       {toast && (

@@ -2,8 +2,52 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+    // Helper function to check if user is authenticated
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user is document owner
+    function isOwner(userId) {
+      return isAuth() && request.auth.uid == userId;
+    }
+
+    // Helper function to check if the authenticated user is an admin
+    function isAdmin() {
+      return isAuth() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // User Profile Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
+    }
+
+    // Notifications Rules
+    match /notifications/{notificationId} {
+      allow read, update: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Properties Rules
+    match /properties/{propertyId} {
+      allow read: if true;
+      allow write: if isAuth(); // Allow signed-in sellers to post properties
+    }
+
+    // Saved Searches Rules
+    match /savedSearches/{searchId} {
+      allow read, write: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Activity Logs Rules
+    match /activity_logs/{logId} {
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false; // Only Cloud Functions can write activity logs
     }
   }
 }
+

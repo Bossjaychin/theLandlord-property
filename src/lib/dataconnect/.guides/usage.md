@@ -14,7 +14,7 @@ If a user is not using a supported framework, they can use the generated SDK dir
 Here's an example of how to use it with the first 5 operations:
 
 ```js
-import { createProperty, createDistressProperty, createBooking, fetchDistrictAvailability, secureDistressSearch, listAllProperties } from '@thelord-property/dataconnect';
+import { createProperty, createDistressProperty, createBooking, createMarketplaceProperty, fetchDistrictAvailability, secureDistressSearch, listAllProperties, listMarketplaceProperties } from '@thelord-property/dataconnect';
 
 
 // Operation CreateProperty:  For variables, look at type CreatePropertyVars in ../index.d.ts
@@ -26,6 +26,9 @@ const { data } = await CreateDistressProperty(dataConnect, createDistressPropert
 // Operation CreateBooking:  For variables, look at type CreateBookingVars in ../index.d.ts
 const { data } = await CreateBooking(dataConnect, createBookingVars);
 
+// Operation CreateMarketplaceProperty:  For variables, look at type CreateMarketplacePropertyVars in ../index.d.ts
+const { data } = await CreateMarketplaceProperty(dataConnect, createMarketplacePropertyVars);
+
 // Operation FetchDistrictAvailability:  For variables, look at type FetchDistrictAvailabilityVars in ../index.d.ts
 const { data } = await FetchDistrictAvailability(dataConnect, fetchDistrictAvailabilityVars);
 
@@ -34,6 +37,9 @@ const { data } = await SecureDistressSearch(dataConnect, secureDistressSearchVar
 
 // Operation ListAllProperties:  For variables, look at type ListAllPropertiesVars in ../index.d.ts
 const { data } = await ListAllProperties(dataConnect, listAllPropertiesVars);
+
+// Operation ListMarketplaceProperties: 
+const { data } = await ListMarketplaceProperties(dataConnect);
 
 
 ```

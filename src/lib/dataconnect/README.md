@@ -11,10 +11,12 @@ This README will guide you through the process of using the generated JavaScript
   - [*FetchDistrictAvailability*](#fetchdistrictavailability)
   - [*SecureDistressSearch*](#securedistresssearch)
   - [*ListAllProperties*](#listallproperties)
+  - [*ListMarketplaceProperties*](#listmarketplaceproperties)
 - [**Mutations**](#mutations)
   - [*CreateProperty*](#createproperty)
   - [*CreateDistressProperty*](#createdistressproperty)
   - [*CreateBooking*](#createbooking)
+  - [*CreateMarketplaceProperty*](#createmarketplaceproperty)
 
 # Accessing the connector
 A connector is a collection of Queries and Mutations. One SDK is generated for each connector - this SDK is generated for the connector `default`. You can find more information about connectors in the [Data Connect documentation](https://firebase.google.com/docs/data-connect#how-does).
@@ -424,6 +426,115 @@ executeQuery(ref).then((response) => {
 });
 ```
 
+## ListMarketplaceProperties
+You can execute the `ListMarketplaceProperties` query using the following action shortcut function, or by calling `executeQuery()` after calling the following `QueryRef` function, both of which are defined in [dataconnect/index.d.ts](./index.d.ts):
+```typescript
+listMarketplaceProperties(options?: ExecuteQueryOptions): QueryPromise<ListMarketplacePropertiesData, undefined>;
+
+interface ListMarketplacePropertiesRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (): QueryRef<ListMarketplacePropertiesData, undefined>;
+}
+export const listMarketplacePropertiesRef: ListMarketplacePropertiesRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `QueryRef` function.
+```typescript
+listMarketplaceProperties(dc: DataConnect, options?: ExecuteQueryOptions): QueryPromise<ListMarketplacePropertiesData, undefined>;
+
+interface ListMarketplacePropertiesRef {
+  ...
+  (dc: DataConnect): QueryRef<ListMarketplacePropertiesData, undefined>;
+}
+export const listMarketplacePropertiesRef: ListMarketplacePropertiesRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the listMarketplacePropertiesRef:
+```typescript
+const name = listMarketplacePropertiesRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `ListMarketplaceProperties` query has no variables.
+### Return Type
+Recall that executing the `ListMarketplaceProperties` query returns a `QueryPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `ListMarketplacePropertiesData`, which is defined in [dataconnect/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface ListMarketplacePropertiesData {
+  properties: ({
+    id: UUIDString;
+    title: string;
+    nightlyRate: number;
+    district: string;
+    isDistressSale?: boolean | null;
+    agisVerified?: boolean | null;
+    askingPrice?: number | null;
+    type?: string | null;
+    titleDoc?: string | null;
+    size?: string | null;
+    sqm?: number | null;
+    plots?: number | null;
+    purpose?: string[] | null;
+    features?: string[] | null;
+    agent?: string | null;
+    photos?: number | null;
+    description?: string | null;
+  } & Property_Key)[];
+}
+```
+### Using `ListMarketplaceProperties`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, listMarketplaceProperties } from '@thelord-property/dataconnect';
+
+
+// Call the `listMarketplaceProperties()` function to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await listMarketplaceProperties();
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await listMarketplaceProperties(dataConnect);
+
+console.log(data.properties);
+
+// Or, you can use the `Promise` API.
+listMarketplaceProperties().then((response) => {
+  const data = response.data;
+  console.log(data.properties);
+});
+```
+
+### Using `ListMarketplaceProperties`'s `QueryRef` function
+
+```typescript
+import { getDataConnect, executeQuery } from 'firebase/data-connect';
+import { connectorConfig, listMarketplacePropertiesRef } from '@thelord-property/dataconnect';
+
+
+// Call the `listMarketplacePropertiesRef()` function to get a reference to the query.
+const ref = listMarketplacePropertiesRef();
+
+// You can also pass in a `DataConnect` instance to the `QueryRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = listMarketplacePropertiesRef(dataConnect);
+
+// Call `executeQuery()` on the reference to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeQuery(ref);
+
+console.log(data.properties);
+
+// Or, you can use the `Promise` API.
+executeQuery(ref).then((response) => {
+  const data = response.data;
+  console.log(data.properties);
+});
+```
+
 # Mutations
 
 There are two ways to execute a Data Connect Mutation using the generated Web SDK:
@@ -796,6 +907,154 @@ console.log(data.booking_insert);
 executeMutation(ref).then((response) => {
   const data = response.data;
   console.log(data.booking_insert);
+});
+```
+
+## CreateMarketplaceProperty
+You can execute the `CreateMarketplaceProperty` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [dataconnect/index.d.ts](./index.d.ts):
+```typescript
+createMarketplaceProperty(vars: CreateMarketplacePropertyVariables): MutationPromise<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+
+interface CreateMarketplacePropertyRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: CreateMarketplacePropertyVariables): MutationRef<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+}
+export const createMarketplacePropertyRef: CreateMarketplacePropertyRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
+```typescript
+createMarketplaceProperty(dc: DataConnect, vars: CreateMarketplacePropertyVariables): MutationPromise<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+
+interface CreateMarketplacePropertyRef {
+  ...
+  (dc: DataConnect, vars: CreateMarketplacePropertyVariables): MutationRef<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+}
+export const createMarketplacePropertyRef: CreateMarketplacePropertyRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the createMarketplacePropertyRef:
+```typescript
+const name = createMarketplacePropertyRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `CreateMarketplaceProperty` mutation requires an argument of type `CreateMarketplacePropertyVariables`, which is defined in [dataconnect/index.d.ts](./index.d.ts). It has the following fields:
+
+```typescript
+export interface CreateMarketplacePropertyVariables {
+  title: string;
+  type: string;
+  district: string;
+  price: number;
+  titleDoc: string;
+  verified: boolean;
+  size: string;
+  sqm: number;
+  plots?: number | null;
+  purpose: string[];
+  features: string[];
+  agent: string;
+  photos: number;
+  description: string;
+}
+```
+### Return Type
+Recall that executing the `CreateMarketplaceProperty` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `CreateMarketplacePropertyData`, which is defined in [dataconnect/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface CreateMarketplacePropertyData {
+  property_insert: Property_Key;
+}
+```
+### Using `CreateMarketplaceProperty`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, createMarketplaceProperty, CreateMarketplacePropertyVariables } from '@thelord-property/dataconnect';
+
+// The `CreateMarketplaceProperty` mutation requires an argument of type `CreateMarketplacePropertyVariables`:
+const createMarketplacePropertyVars: CreateMarketplacePropertyVariables = {
+  title: ..., 
+  type: ..., 
+  district: ..., 
+  price: ..., 
+  titleDoc: ..., 
+  verified: ..., 
+  size: ..., 
+  sqm: ..., 
+  plots: ..., // optional
+  purpose: ..., 
+  features: ..., 
+  agent: ..., 
+  photos: ..., 
+  description: ..., 
+};
+
+// Call the `createMarketplaceProperty()` function to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await createMarketplaceProperty(createMarketplacePropertyVars);
+// Variables can be defined inline as well.
+const { data } = await createMarketplaceProperty({ title: ..., type: ..., district: ..., price: ..., titleDoc: ..., verified: ..., size: ..., sqm: ..., plots: ..., purpose: ..., features: ..., agent: ..., photos: ..., description: ..., });
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await createMarketplaceProperty(dataConnect, createMarketplacePropertyVars);
+
+console.log(data.property_insert);
+
+// Or, you can use the `Promise` API.
+createMarketplaceProperty(createMarketplacePropertyVars).then((response) => {
+  const data = response.data;
+  console.log(data.property_insert);
+});
+```
+
+### Using `CreateMarketplaceProperty`'s `MutationRef` function
+
+```typescript
+import { getDataConnect, executeMutation } from 'firebase/data-connect';
+import { connectorConfig, createMarketplacePropertyRef, CreateMarketplacePropertyVariables } from '@thelord-property/dataconnect';
+
+// The `CreateMarketplaceProperty` mutation requires an argument of type `CreateMarketplacePropertyVariables`:
+const createMarketplacePropertyVars: CreateMarketplacePropertyVariables = {
+  title: ..., 
+  type: ..., 
+  district: ..., 
+  price: ..., 
+  titleDoc: ..., 
+  verified: ..., 
+  size: ..., 
+  sqm: ..., 
+  plots: ..., // optional
+  purpose: ..., 
+  features: ..., 
+  agent: ..., 
+  photos: ..., 
+  description: ..., 
+};
+
+// Call the `createMarketplacePropertyRef()` function to get a reference to the mutation.
+const ref = createMarketplacePropertyRef(createMarketplacePropertyVars);
+// Variables can be defined inline as well.
+const ref = createMarketplacePropertyRef({ title: ..., type: ..., district: ..., price: ..., titleDoc: ..., verified: ..., size: ..., sqm: ..., plots: ..., purpose: ..., features: ..., agent: ..., photos: ..., description: ..., });
+
+// You can also pass in a `DataConnect` instance to the `MutationRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = createMarketplacePropertyRef(dataConnect, createMarketplacePropertyVars);
+
+// Call `executeMutation()` on the reference to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeMutation(ref);
+
+console.log(data.property_insert);
+
+// Or, you can use the `Promise` API.
+executeMutation(ref).then((response) => {
+  const data = response.data;
+  console.log(data.property_insert);
 });
 ```
 

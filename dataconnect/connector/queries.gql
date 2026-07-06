@@ -2,7 +2,7 @@ query FetchDistrictAvailability(
   $district: String!
   $checkIn: Date!
   $checkOut: Date!
-) @auth(level: USER, insecureReason: "Any user can query property availability by district") { # Only authenticated users can look up availability
+) @auth(level: PUBLIC) { # Any user can query property availability by district
   properties(where: { district: { eq: $district } }) {
     id
     title
@@ -49,7 +49,7 @@ query SecureDistressSearch($buyerQuery: String!)
 query ListAllProperties(
   $checkIn: Date!
   $checkOut: Date!
-) @auth(level: USER, insecureReason: "Any user can browse all properties") {
+) @auth(level: PUBLIC) { # Any user can browse all properties
   properties {
     id
     title
@@ -70,6 +70,28 @@ query ListAllProperties(
       checkIn
       checkOut
     }
+  }
+}
+
+query ListMarketplaceProperties @auth(level: PUBLIC) {
+  properties(where: { isMarketplaceListing: { eq: true } }) {
+    id
+    title
+    nightlyRate
+    district
+    isDistressSale
+    agisVerified
+    askingPrice
+    type
+    titleDoc
+    size
+    sqm
+    plots
+    purpose
+    features
+    agent
+    photos
+    description
   }
 }
 

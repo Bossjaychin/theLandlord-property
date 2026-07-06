@@ -1,15 +1,17 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import Admin from "./Admin";
 import Marketplace from "./Marketplace";
-import { dataConnect, auth } from "./lib/firebase";
+import Listings from "./Listings";
+import { dataConnect, auth, db, requestNotificationPermission, onForegroundMessage } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, updateDoc, serverTimestamp, query, collection, where, orderBy, onSnapshot, writeBatch, addDoc, getDocs, getDoc, setDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { fetchDistrictAvailability, createProperty, createBooking, secureDistressSearch, createDistressProperty, listAllProperties } from "./lib/dataconnect";
 import AuthModal from "./AuthModal";
 import Profile from "./Profile";
 import ShortletView from "./ShortletView";
 
 /* ============================================================
-   THE LANDLORD PROPERTY AI — Launch Edition Web App
+   THE LANDLORD PROPERTY — Launch Edition Web App
    Two pillars: AI Distress Deals + AI Shortlet Manager
    Design tokens:
    - ink:    #0C2B1F  deep forest (text / headers)
@@ -236,6 +238,18 @@ const SCREENED = [
   { g: "Unverified profile", risk: "Held", note: "ID mismatch — booking held, re-verification link sent", ok: false },
 ];
 
+/* ---------------- Property photo map (one per deal type) ---------------- */
+// Curated Unsplash photos that match each deal's property type
+const DEAL_PHOTOS = {
+  d1: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80",  // apartment
+  d2: "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&q=80",  // terrace duplex
+  d3: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&q=80",  // land/plots
+  d4: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800&q=80",  // studio/1-bed
+  d5: "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800&q=80",  // 5-bed detached
+  d6: "https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80",  // corner plot land
+};
+const getDealPhoto = (deal) => DEAL_PHOTOS[deal.id] || "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80";
+
 /* ---------------- Small components ---------------- */
 
 const Pill = ({ children, bg, color, border }) => (
@@ -370,11 +384,297 @@ const RiskFlag = ({ kind, level }) => {
   );
 };
 
+/* ---------------- Heart / Save Button ---------------- */
+
+const HeartBtn = ({ dealId, savedIds, onToggle, size = "card" }) => {
+  const isSaved = savedIds.has(dealId);
+  const [burst, setBurst] = useState(false);
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (!isSaved) {
+      setBurst(true);
+      setTimeout(() => setBurst(false), 600);
+    }
+    onToggle(dealId);
+  };
+
+  const isCard = size === "card";
+  return (
+    <button
+      onClick={handleClick}
+      title={isSaved ? "Remove from Saved" : "Save this deal"}
+      aria-label={isSaved ? "Remove from saved deals" : "Save deal"}
+      style={{
+        border: "none",
+        background: isSaved ? "#FEE2E2" : "rgba(255,255,255,.88)",
+        color: isSaved ? "#DC2626" : "#9CA3AF",
+        borderRadius: "50%",
+        width: isCard ? 34 : 38,
+        height: isCard ? 34 : 38,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        fontSize: isCard ? 15 : 18,
+        boxShadow: "0 2px 8px rgba(0,0,0,.12)",
+        backdropFilter: "blur(4px)",
+        transition: "all .18s ease",
+        transform: burst ? "scale(1.35)" : "scale(1)",
+        flexShrink: 0,
+      }}
+    >
+      {isSaved ? "♥" : "♡"}
+    </button>
+  );
+};
+
+/* ---------------- Compare Bar + Modal (fixed bottom) ---------------- */
+
+const CompareBar = ({ compareIds, dealsList, onRemove, onOpen, onClear, cur }) => {
+  const [showModal, setShowModal] = useState(false);
+  if (compareIds.length < 1) return null;
+
+  const compareDeals = compareIds.map(id => dealsList.find(d => d.id === id)).filter(Boolean);
+
+  const ROWS = [
+    ["Asking Price", d => fmtFull(d.asking, cur)],
+    ["Market Value", d => fmtFull(d.market, cur)],
+    ["Discount", d => `-${Math.round(((d.market - d.asking) / d.market) * 100)}%`],
+    ["Trust Score", d => `${d.trust}/100`],
+    ["Title Grade", d => `${d.title} · Grade ${d.titleGrade}`],
+    ["District", d => d.district],
+    ["Type", d => d.type],
+    ["Shortlet /mo", d => d.shortlet ? fmtN(d.shortlet.monthlyNet, cur) : "N/A"],
+    ["Yield", d => d.yield ? `${d.yield}%` : "N/A"],
+    ["Days Listed", d => d.days === 1 ? "1 day" : `${d.days} days`],
+    ["Inspected", d => d.inspected ? "✓ Yes" : "Scheduled"],
+  ];
+
+  return (
+    <>
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 55,
+        background: T.ink, borderTop: `2px solid ${T.green}`,
+        padding: "12px 20px", display: "flex", alignItems: "center",
+        gap: 12, boxShadow: "0 -4px 24px rgba(12,43,31,.35)", flexWrap: "wrap",
+      }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: T.gold, letterSpacing: 1, textTransform: "uppercase", flexShrink: 0 }}>
+          ⚖️ Compare ({compareIds.length}/3)
+        </div>
+        <div style={{ display: "flex", gap: 8, flex: 1, flexWrap: "wrap" }}>
+          {compareDeals.map(deal => (
+            <div key={deal.id} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.18)",
+              borderRadius: 10, padding: "6px 10px", maxWidth: 220,
+            }}>
+              <div style={{ fontSize: 12, color: "#fff", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {deal.name.split(",")[0]}
+              </div>
+              <button onClick={() => onRemove(deal.id)} style={{ border: "none", background: "transparent", color: "rgba(255,255,255,.55)", cursor: "pointer", fontSize: 14, padding: "0 2px", lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+          {Array.from({ length: Math.max(0, 2 - compareDeals.length) }).map((_, i) => (
+            <div key={i} style={{ width: 120, height: 34, border: "1.5px dashed rgba(255,255,255,.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "rgba(255,255,255,.3)", fontStyle: "italic" }}>add a deal</div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={onClear} style={{ border: "1.5px solid rgba(255,255,255,.2)", background: "transparent", color: "rgba(255,255,255,.65)", borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Clear</button>
+          <button
+            onClick={() => setShowModal(true)}
+            disabled={compareDeals.length < 2}
+            style={{
+              border: "none",
+              background: compareDeals.length >= 2 ? T.gold : "rgba(255,255,255,.15)",
+              color: compareDeals.length >= 2 ? T.ink : "rgba(255,255,255,.35)",
+              borderRadius: 9, padding: "7px 18px", fontSize: 13, fontWeight: 700,
+              cursor: compareDeals.length >= 2 ? "pointer" : "default", transition: "all .15s",
+            }}
+          >Compare →</button>
+        </div>
+      </div>
+
+      {showModal && (
+        <div onClick={() => setShowModal(false)} style={{ position: "fixed", inset: 0, background: "rgba(12,43,31,.65)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.paper, borderRadius: 22, width: "min(920px,100%)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 32px 80px rgba(0,0,0,.35)" }}>
+            <div style={{ background: T.ink, borderRadius: "22px 22px 0 0", padding: "20px 28px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 1 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: T.gold, textTransform: "uppercase" }}>Side-by-Side Analysis</div>
+                <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: "#fff", marginTop: 3 }}>Deal Comparison</div>
+              </div>
+              <button onClick={() => setShowModal(false)} style={{ border: "none", background: "rgba(255,255,255,.1)", color: "#fff", borderRadius: 10, width: 36, height: 36, cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+
+            <div>
+              {/* Column headers */}
+              <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${compareDeals.length}, 1fr)`, borderBottom: `2px solid ${T.line}` }}>
+                <div style={{ padding: "16px 20px" }} />
+                {compareDeals.map((deal, i) => (
+                  <div key={deal.id} style={{ padding: "16px 16px", background: i % 2 === 0 ? T.card : "#FAFCFA", borderLeft: `1px solid ${T.line}` }}>
+                    <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 13.5, color: T.ink, lineHeight: 1.25, marginBottom: 4 }}>
+                      {deal.name}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: T.sub, marginBottom: 8 }}>{deal.district} · {deal.type}</div>
+                    <button
+                      onClick={() => { setShowModal(false); onOpen(deal); }}
+                      style={{ border: `1.5px solid ${T.green}`, background: "transparent", color: T.green, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                    >View Deal →</button>
+                  </div>
+                ))}
+              </div>
+
+              {ROWS.map(([label, fn], rowIdx) => {
+                const values = compareDeals.map(fn);
+                const numVals = values.map(v => parseFloat(String(v).replace(/[₦$%,+\-A-Za-z\s/]/g, "")));
+                const allNum = numVals.every(v => !isNaN(v) && isFinite(v));
+                const maxVal = allNum ? Math.max(...numVals) : null;
+                const minVal = allNum ? Math.min(...numVals) : null;
+                const bestIsMax = ["Discount","Trust Score","Shortlet /mo","Yield"].includes(label);
+                const bestIsMin = ["Asking Price","Days Listed"].includes(label);
+
+                return (
+                  <div key={label} style={{ display: "grid", gridTemplateColumns: `180px repeat(${compareDeals.length}, 1fr)`, borderBottom: `1px solid ${T.line}`, background: rowIdx % 2 === 0 ? T.card : "#FAFCFA" }}>
+                    <div style={{ padding: "12px 20px", fontSize: 11.5, fontWeight: 700, color: T.sub, textTransform: "uppercase", letterSpacing: 0.6, display: "flex", alignItems: "center" }}>
+                      {label}
+                    </div>
+                    {compareDeals.map((deal, i) => {
+                      const val = values[i];
+                      const numVal = numVals[i];
+                      const isBest = allNum && ((bestIsMax && numVal === maxVal) || (bestIsMin && numVal === minVal));
+                      return (
+                        <div key={deal.id} style={{ padding: "12px 16px", borderLeft: `1px solid ${T.line}`, fontSize: 13, fontWeight: isBest ? 700 : 500, color: isBest ? T.green : T.ink, display: "flex", alignItems: "center", gap: 6, background: isBest ? T.mint : "transparent" }}>
+                          {isBest && <span style={{ fontSize: 9, background: T.green, color: "#fff", borderRadius: 4, padding: "1px 5px", fontWeight: 800, flexShrink: 0 }}>BEST</span>}
+                          {val}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ padding: "16px 28px", fontSize: 11.5, color: T.sub, textAlign: "center", borderTop: `1px solid ${T.line}` }}>
+              "BEST" highlights the most favourable value for each metric across compared deals.
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+/* ---------------- Inspection Request (inside DealModal) ---------------- */
+
+const InspectionRequest = ({ deal, user, onToast }) => {
+  const [stage, setStage] = useState("idle"); // idle | picking | submitted
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const businessDays = useMemo(() => {
+    const days = [];
+    const d = new Date();
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    while (days.length < 3) {
+      d.setDate(d.getDate() + 1);
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) {
+        days.push({ label: `${dayNames[dow]} ${d.getDate()} ${monthNames[d.getMonth()]}`, iso: d.toISOString().split("T")[0] });
+      }
+    }
+    return days;
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!selectedDate) return;
+    setSubmitting(true);
+    const payload = {
+      dealId: deal.id, dealName: deal.name, district: deal.district,
+      preferredDate: selectedDate, userId: user?.uid || "anonymous",
+      userEmail: user?.email || "guest", createdAt: new Date().toISOString(),
+    };
+    try {
+      if (user) {
+        await addDoc(collection(db, "inspection_requests"), { ...payload, createdAt: serverTimestamp() });
+      } else {
+        const ex = JSON.parse(localStorage.getItem("lp_inspection_requests") || "[]");
+        ex.push(payload);
+        localStorage.setItem("lp_inspection_requests", JSON.stringify(ex));
+      }
+    } catch (e) {
+      const ex = JSON.parse(localStorage.getItem("lp_inspection_requests") || "[]");
+      ex.push(payload);
+      localStorage.setItem("lp_inspection_requests", JSON.stringify(ex));
+    } finally {
+      setSubmitting(false);
+      setStage("submitted");
+      if (onToast) onToast("Inspection request submitted! Our team will confirm within 2 hours. ✓");
+    }
+  };
+
+  if (stage === "submitted") {
+    return (
+      <div style={{ background: T.mint, border: `1.5px solid ${T.green}`, borderRadius: 14, padding: 18, marginTop: 14, display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <div style={{ fontSize: 28, flexShrink: 0 }}>✅</div>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: T.green }}>Inspection Requested</div>
+          <div style={{ fontSize: 13, color: T.sub, marginTop: 3, lineHeight: 1.4 }}>
+            Our field agent will confirm your preferred date of <strong>{selectedDate}</strong> within 2 hours via WhatsApp.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === "picking") {
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 18, marginTop: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: T.green, textTransform: "uppercase", marginBottom: 12 }}>
+          📋 Select Preferred Inspection Date
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+          {businessDays.map(({ label, iso }) => (
+            <button key={iso} onClick={() => setSelectedDate(iso)} style={{ flex: "1 1 120px", padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${selectedDate === iso ? T.green : T.line}`, background: selectedDate === iso ? T.mint : T.paper, color: selectedDate === iso ? T.green : T.ink, fontWeight: 700, fontSize: 12.5, cursor: "pointer", transition: "all .15s" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setStage("idle")} style={{ flex: 1, border: `1.5px solid ${T.line}`, background: "transparent", color: T.sub, borderRadius: 9, padding: "9px 0", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+          <button
+            onClick={handleSubmit} disabled={!selectedDate || submitting}
+            style={{ flex: 2, border: "none", background: selectedDate ? T.green : T.line, color: selectedDate ? "#fff" : T.sub, borderRadius: 9, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: selectedDate ? "pointer" : "default", transition: "all .15s", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+          >
+            {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderRadius: "50%", border: "2.5px solid rgba(255,255,255,.4)", borderTopColor: "#fff", display: "inline-block" }} /> Submitting…</> : "Confirm Inspection →"}
+          </button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.sub, marginTop: 10, lineHeight: 1.4 }}>
+          A licensed field agent will inspect the property, take geotagged photos, and send a detailed report within 24 hours.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: T.goldSoft, border: `1px solid ${T.gold}44`, borderRadius: 14, padding: "14px 18px", marginTop: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 13, color: "#7A5800" }}>🔍 Request a Field Inspection</div>
+        <div style={{ fontSize: 12, color: "#9A7000", marginTop: 3 }}>Book a licensed agent for a physical site visit — geotagged, reported in 24h.</div>
+      </div>
+      <button onClick={() => setStage("picking")} style={{ border: "none", background: T.gold, color: T.ink, borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(201,162,39,.3)" }}>
+        Book Date →
+      </button>
+    </div>
+  );
+};
+
 /* ---------------- Deal card ---------------- */
 
-const DealCard = ({ deal, cur, onOpen }) => {
+const DealCard = ({ deal, cur, onOpen, savedIds, onToggleSave, compareIds, onToggleCompare }) => {
   const [earn, setEarn] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const disc = Math.round(((deal.market - deal.asking) / deal.market) * 100);
+  const photo = getDealPhoto(deal);
   return (
     <div
       style={{
@@ -385,45 +685,115 @@ const DealCard = ({ deal, cur, onOpen }) => {
         display: "flex",
         flexDirection: "column",
         boxShadow: "0 1px 3px rgba(12,43,31,.06)",
+        transition: "box-shadow .2s ease, transform .2s ease",
       }}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 8px 28px rgba(12,43,31,.13)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(12,43,31,.06)"; e.currentTarget.style.transform = "translateY(0)"; }}
     >
-      {/* header strip */}
+      {/* ── Property photo ── */}
       <div
+        onClick={() => onOpen(deal)}
         style={{
-          background: earn ? T.tealSoft : T.mint,
-          padding: "14px 16px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 10,
-          transition: "background .25s ease",
+          position: "relative",
+          height: 190,
+          background: T.mint,
+          cursor: "pointer",
+          overflow: "hidden",
         }}
       >
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 16.5, color: T.ink, lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-            {deal.name}
-          </div>
-          <div style={{ fontSize: 12.5, color: T.sub, marginTop: 3 }}>
-            {deal.district} · {deal.type} · listed {deal.days === 1 ? "yesterday" : deal.days + " days ago"}
-          </div>
+        <img
+          src={photo}
+          alt={deal.name}
+          onLoad={() => setImgLoaded(true)}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            transition: "transform .35s ease, opacity .3s ease",
+            opacity: imgLoaded ? 1 : 0,
+          }}
+          onMouseEnter={e => e.currentTarget.style.transform = "scale(1.04)"}
+          onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+        />
+        {/* Discount badge on photo */}
+        <div style={{
+          position: "absolute",
+          top: 10,
+          left: 10,
+          background: T.amber,
+          color: "#fff",
+          borderRadius: 999,
+          fontSize: 11.5,
+          fontWeight: 700,
+          padding: "3px 10px",
+          boxShadow: "0 2px 6px rgba(180,84,10,.4)",
+        }}>−{disc}% below market</div>
+
+        {/* Heart / Save button absolute positioned top-right */}
+        <div style={{ position: "absolute", top: 10, right: 10, zIndex: 10 }}>
+          <HeartBtn dealId={deal.id} savedIds={savedIds} onToggle={onToggleSave} size="card" />
         </div>
-        <TrustRing score={deal.trust} />
+
+        {/* Lock icon — documents gated */}
+        <div style={{
+          position: "absolute",
+          top: 10,
+          right: 50,
+          background: "rgba(12,43,31,.75)",
+          backdropFilter: "blur(4px)",
+          color: "#fff",
+          borderRadius: 8,
+          fontSize: 11,
+          fontWeight: 700,
+          padding: "4px 9px",
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          height: 34,
+          boxSizing: "border-box",
+          zIndex: 9,
+        }}>🔒 Docs</div>
+
+        {/* Trust ring overlay bottom-right */}
+        <div style={{ position: "absolute", bottom: 10, right: 10 }}>
+          <TrustRing score={deal.trust} size={44} />
+        </div>
+        {/* Photo skeleton if not loaded */}
+        {!imgLoaded && (
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            background: `linear-gradient(90deg, ${T.mint} 25%, #d8ede2 50%, ${T.mint} 75%)`,
+            backgroundSize: "200% 100%",
+            animation: "shimmer 1.6s infinite",
+          }} />
+        )}
+      </div>
+
+      {/* header info (below photo) */}
+      <div style={{ padding: "12px 16px 0" }}>
+        <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 15.5, color: T.ink, lineHeight: 1.25, display: "-webkit-box", overflow: "hidden", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+          {deal.name}
+        </div>
+        <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>
+          {deal.district} · {deal.type} · listed {deal.days === 1 ? "yesterday" : deal.days + " days ago"}
+        </div>
       </div>
 
       {/* Buy ⇄ Rent toggle */}
-      <div style={{ padding: "14px 16px 0" }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+      <div style={{ padding: "10px 16px 0" }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <button
             onClick={() => setEarn(false)}
             title="See the purchase price, discount vs. market value, and urgency context"
             style={{
               flex: 1,
-              padding: "7px 0",
+              padding: "6px 0",
               borderRadius: 8,
               border: `1.5px solid ${!earn ? T.ink : T.line}`,
               cursor: "pointer",
               fontWeight: 700,
-              fontSize: 12,
+              fontSize: 11.5,
               background: !earn ? T.ink : "transparent",
               color: !earn ? "#fff" : T.sub,
               transition: "all .18s ease",
@@ -437,12 +807,12 @@ const DealCard = ({ deal, cur, onOpen }) => {
               title="If you buy this property, the AI projects it can earn this much as a managed shortlet"
               style={{
                 flex: 1,
-                padding: "7px 0",
+                padding: "6px 0",
                 borderRadius: 8,
                 border: `1.5px solid ${earn ? T.teal : T.line}`,
                 cursor: "pointer",
                 fontWeight: 700,
-                fontSize: 12,
+                fontSize: 11.5,
                 background: earn ? T.teal : "transparent",
                 color: earn ? "#fff" : T.teal,
                 transition: "all .18s ease",
@@ -455,11 +825,11 @@ const DealCard = ({ deal, cur, onOpen }) => {
               title="Shortlet projection not available for land — no building yet"
               style={{
                 flex: 1,
-                padding: "7px 0",
+                padding: "6px 0",
                 borderRadius: 8,
                 border: `1.5px dashed ${T.line}`,
                 fontWeight: 600,
-                fontSize: 11.5,
+                fontSize: 11,
                 textAlign: "center",
                 color: "#B9C2BC",
                 cursor: "default",
@@ -471,43 +841,42 @@ const DealCard = ({ deal, cur, onOpen }) => {
           )}
         </div>
 
-        {/* Price / yield body — fixed min-height keeps all cards level */}
-        <div style={{ minHeight: 62 }}>
+        {/* Price / yield body */}
+        <div style={{ minHeight: 58 }}>
           {!earn ? (
             <div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 24, color: T.ink }}>
+                <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.ink }}>
                   {fmtN(deal.asking, cur)}
                 </span>
-                <span style={{ fontSize: 13, color: T.sub, textDecoration: "line-through" }}>{fmtN(deal.market, cur)}</span>
-                <Pill bg={T.amberSoft} color={T.amber}>−{disc}% below market</Pill>
+                <span style={{ fontSize: 12.5, color: T.sub, textDecoration: "line-through" }}>{fmtN(deal.market, cur)}</span>
               </div>
-              <div style={{ fontSize: 12.5, color: T.amber, fontWeight: 600, marginTop: 6 }}>⏱ {deal.urgency}</div>
+              <div style={{ fontSize: 12, color: T.amber, fontWeight: 600, marginTop: 4 }}>⏱ {deal.urgency}</div>
             </div>
           ) : (
             <div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 24, color: T.teal }}>
+                <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.teal }}>
                   {fmtN(deal.shortlet.monthlyNet, cur)}
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>/mo</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>/mo</span>
                 </span>
-                <Pill bg={T.tealSoft} color={T.teal}>AI rental projection</Pill>
+                <Pill bg={T.tealSoft} color={T.teal}>AI projection</Pill>
               </div>
-              <div style={{ fontSize: 12.5, color: T.sub, marginTop: 6 }}>
-                {fmtN(deal.shortlet.nightly, cur)}/night · {Math.round(deal.shortlet.occ * 100)}% occupancy · {deal.yield}% gross yield
+              <div style={{ fontSize: 12, color: T.sub, marginTop: 4 }}>
+                {fmtN(deal.shortlet.nightly, cur)}/night · {Math.round(deal.shortlet.occ * 100)}% occ · {deal.yield}% yield
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* badges — flex-grow pushes them up, buttons pin to bottom */}
-      <div style={{ padding: "12px 16px 8px", display: "flex", flexWrap: "wrap", gap: 6, flex: 1, alignContent: "flex-start" }}>
+      {/* badges */}
+      <div style={{ padding: "10px 16px 8px", display: "flex", flexWrap: "wrap", gap: 5, flex: 1, alignContent: "flex-start" }}>
         <Pill bg={deal.titleGrade === "A" ? T.mint : deal.titleGrade === "B" ? T.goldSoft : T.amberSoft} color={deal.titleGrade === "A" ? T.green : deal.titleGrade === "B" ? "#8A6D0B" : T.amber}>
           {deal.title} · Grade {deal.titleGrade}
         </Pill>
         {deal.inspected ? (
-          <Pill bg={T.mint} color={T.green}>✓ Field-inspected</Pill>
+          <Pill bg={T.mint} color={T.green}>✓ Inspected</Pill>
         ) : (
           <Pill bg={T.paper} color={T.sub} border={T.line}>Inspection scheduled</Pill>
         )}
@@ -515,30 +884,194 @@ const DealCard = ({ deal, cur, onOpen }) => {
         <RiskFlag kind="flood" level={deal.flood} />
       </div>
 
-      {/* CTA row — always pinned to card bottom */}
+      {/* CTA row */}
       <div style={{ padding: "8px 16px 16px", display: "flex", gap: 8 }}>
         <Btn onClick={() => onOpen(deal)} style={{ flex: 1 }}>
-          View full deal report
+          📷 Details
         </Btn>
-        <Btn kind="ghost" small onClick={() => onOpen(deal)} style={{ alignSelf: "stretch", whiteSpace: "nowrap" }} title="Open the milestone-based escrow flow for this deal">
-          Start escrow
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleCompare(deal.id); }}
+          disabled={compareIds.length >= 3 && !compareIds.includes(deal.id)}
+          style={{
+            border: `1.5px solid ${compareIds.includes(deal.id) ? T.gold : T.line}`,
+            background: compareIds.includes(deal.id) ? T.goldSoft : "#fff",
+            color: compareIds.includes(deal.id) ? "#8A6D0B" : T.sub,
+            borderRadius: 10,
+            padding: "0 12px",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: (compareIds.length >= 3 && !compareIds.includes(deal.id)) ? "default" : "pointer",
+            transition: "all .15s ease",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: (compareIds.length >= 3 && !compareIds.includes(deal.id)) ? 0.5 : 1,
+            outline: "none",
+          }}
+          title={compareIds.includes(deal.id) ? "Remove from comparison" : "Add to comparison"}
+        >
+          {compareIds.includes(deal.id) ? "✓ Compare" : "⊕ Compare"}
+        </button>
+        <Btn kind="ghost" small onClick={() => onOpen(deal)} style={{ whiteSpace: "nowrap", fontSize: 11.5 }} title="Verification required to access escrow">
+          🔒 Docs
         </Btn>
       </div>
     </div>
   );
 };
 
+/* ---------------- Verification Gate (inside modal) ---------------- */
+
+const VerificationGate = ({ onSignIn }) => (
+  <div style={{
+    background: `linear-gradient(135deg, ${T.ink} 0%, #0A3420 100%)`,
+    borderRadius: 18,
+    padding: "32px 24px",
+    textAlign: "center",
+    position: "relative",
+    overflow: "hidden",
+    marginTop: 20,
+  }}>
+    {/* Decorative circles */}
+    <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(201,162,39,.12)" }} />
+    <div style={{ position: "absolute", left: -30, bottom: -50, width: 140, height: 140, borderRadius: "50%", background: "rgba(14,107,117,.15)" }} />
+    <div style={{ position: "relative", zIndex: 1 }}>
+      {/* Shield icon */}
+      <div style={{
+        width: 68,
+        height: 68,
+        borderRadius: "50%",
+        background: "rgba(201,162,39,.15)",
+        border: "2px solid rgba(201,162,39,.4)",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 30,
+        marginBottom: 18,
+      }}>🛡️</div>
+      <div style={{
+        fontFamily: "'Bricolage Grotesque', sans-serif",
+        fontWeight: 800,
+        fontSize: 20,
+        color: "#fff",
+        lineHeight: 1.25,
+        marginBottom: 10,
+      }}>Get Verified to See Documents</div>
+      <p style={{
+        fontSize: 13.5,
+        color: "rgba(255,255,255,.78)",
+        lineHeight: 1.6,
+        maxWidth: 420,
+        margin: "0 auto 22px",
+      }}>
+        Title documents, AGIS search results, negotiation ranges, and seller contact are
+        protected. A quick <b style={{ color: T.gold }}>NIN/BVN identity check</b> unlocks full
+        access — this protects both you and the seller.
+      </p>
+
+      {/* What's locked list */}
+      <div className="verify-locked-grid" style={{
+        background: "rgba(255,255,255,.07)",
+        border: "1px solid rgba(255,255,255,.12)",
+        borderRadius: 12,
+        padding: "14px 18px",
+        textAlign: "left",
+        marginBottom: 22,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: "8px 16px",
+      }}>
+        {[
+          "📄 Title document (C of O / R of O)",
+          "🔍 AGIS land registry search",
+          "⚖ AI negotiation range",
+          "📋 Field inspection report",
+          "🤖 AI Document Forensics",
+          "📞 Seller contact & escrow",
+        ].map(item => (
+          <div key={item} style={{ fontSize: 12.5, color: "rgba(255,255,255,.8)", display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ color: "rgba(201,162,39,.7)", fontWeight: 700 }}>🔒</span>
+            {item}
+          </div>
+        ))}
+      </div>
+
+      {/* Steps */}
+      <div className="verify-step-row" style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 22, flexWrap: "wrap" }}>
+        {[
+          { n: "1", label: "Sign in", icon: "✉️" },
+          { n: "2", label: "ID check (2 min)", icon: "🪪" },
+          { n: "3", label: "Full access", icon: "✅" },
+        ].map(step => (
+          <div key={step.n} style={{
+            background: "rgba(255,255,255,.08)",
+            border: "1px solid rgba(255,255,255,.15)",
+            borderRadius: 10,
+            padding: "10px 16px",
+            textAlign: "center",
+            minWidth: 100,
+          }}>
+            <div style={{ fontSize: 20 }}>{step.icon}</div>
+            <div style={{ fontSize: 11, color: T.gold, fontWeight: 700, marginTop: 4 }}>Step {step.n}</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,.85)", marginTop: 2 }}>{step.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={onSignIn}
+        style={{
+          background: `linear-gradient(135deg, ${T.gold}, #E1B22B)`,
+          color: T.ink,
+          border: "none",
+          borderRadius: 12,
+          padding: "13px 32px",
+          fontFamily: "'Instrument Sans', sans-serif",
+          fontWeight: 700,
+          fontSize: 15,
+          cursor: "pointer",
+          boxShadow: "0 4px 18px rgba(201,162,39,.45)",
+          transition: "transform .12s ease, box-shadow .12s ease",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+        onMouseDown={e => e.currentTarget.style.transform = "scale(.97)"}
+        onMouseUp={e => e.currentTarget.style.transform = "scale(1)"}
+        onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+      >
+        🛡️ Get Verified — Unlock Documents
+      </button>
+      <div style={{ fontSize: 11.5, color: "rgba(255,255,255,.5)", marginTop: 12 }}>
+        Free · takes ~2 minutes · your data is protected under our privacy policy
+      </div>
+    </div>
+  </div>
+);
+
 /* ---------------- Deal modal ---------------- */
 
-const DealModal = ({ deal, cur, onClose, onBuyAndOnboard }) => {
+const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest, savedIds, onToggleSave, onToast }) => {
   const [step, setStep] = useState(1);
+  const [photoIdx, setPhotoIdx] = useState(0);
   const [forensicReport, setForensicReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [loadingStage, setLoadingStage] = useState("");
-  
+  const [roiData, setRoiData] = useState(null);
+  const [roiLoading, setRoiLoading] = useState(false);
+
+
   if (!deal) return null;
   const disc = Math.round(((deal.market - deal.asking) / deal.market) * 100);
   const steps = ["Offer accepted", "AGIS search & legal review", "Documents executed", "Possession — funds released"];
+  const isVerified = !!user; // treat signed-in as verified for demo; in prod check kycVerified claim
+  const photo = getDealPhoto(deal);
+  // Generate 3 mock extra photos by varying the Unsplash query slightly
+  const photos = [
+    photo,
+    photo.replace("w=800", "w=801"),
+    photo.replace("w=800", "w=802"),
+  ];
 
   const runForensics = async () => {
     setLoadingReport(true);
@@ -581,13 +1114,42 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard }) => {
     }
   };
 
+  const runRoi = async () => {
+    setRoiLoading(true);
+    setRoiData(null);
+    try {
+      const res = await fetch('/api/roi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          propertyName: deal.name,
+          district: deal.district,
+          askingPrice: deal.asking,
+          marketValue: deal.market,
+          shortletMonthlyNet: deal.shortlet?.monthlyNet || 0,
+          shortletNightly: deal.shortlet?.nightly || 0,
+          occupancy: deal.shortlet?.occ || 0,
+          grossYield: deal.yield || 0,
+        }),
+      });
+      const data = await res.json();
+      setRoiData(data);
+    } catch {
+      setRoiData({ error: true });
+    } finally {
+      setRoiLoading(false);
+    }
+  };
+
   return (
     <div
       onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(12,43,31,.45)",
+        background: "rgba(12,43,31,.55)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
         zIndex: 60,
         display: "flex",
         alignItems: "flex-end",
@@ -596,45 +1158,159 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard }) => {
       }}
     >
       <div
+        className="deal-modal-inner"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: T.paper,
           borderRadius: 20,
-          width: "min(720px, 100%)",
-          maxHeight: "92vh",
+          width: "min(760px, 100%)",
+          maxHeight: "94vh",
           overflowY: "auto",
-          padding: 22,
+          padding: 0,
+          overflow: "hidden",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-          <div>
-            <SectionLabel>AI Deal Intelligence Report</SectionLabel>
-            <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.ink }}>{deal.name}</div>
-            <div style={{ fontSize: 13, color: T.sub, marginTop: 3 }}>
-              {deal.district}, Abuja · Verified by {deal.verifiedBy}
+        {/* ── Photo gallery (free — always visible) ── */}
+        <div className="deal-modal-photo" style={{ position: "relative", height: 280, background: T.ink, overflow: "hidden", flexShrink: 0 }}>
+          <img
+            src={photos[photoIdx]}
+            alt={`${deal.name} — photo ${photoIdx + 1}`}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+          {/* Dark gradient overlay for text legibility */}
+          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(12,43,31,.85) 0%, transparent 55%)" }} />
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              position: "absolute", top: 14, right: 14,
+              border: "none", background: "rgba(0,0,0,.45)", backdropFilter: "blur(4px)",
+              color: "#fff", borderRadius: 10, width: 34, height: 34,
+              cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center",
+              zIndex: 11,
+            }}
+          >✕</button>
+          {/* Photo counter / dots */}
+          <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6, zIndex: 10 }}>
+            {photos.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setPhotoIdx(i)}
+                style={{
+                  width: i === photoIdx ? 22 : 7,
+                  height: 7,
+                  borderRadius: 999,
+                  border: "none",
+                  background: i === photoIdx ? T.gold : "rgba(255,255,255,.5)",
+                  cursor: "pointer",
+                  transition: "all .2s ease",
+                  padding: 0,
+                }}
+              />
+            ))}
+          </div>
+          {/* Photo nav arrows */}
+          {photos.length > 1 && (
+            <>
+              <button
+                onClick={() => setPhotoIdx(i => (i - 1 + photos.length) % photos.length)}
+                style={{
+                  position: "absolute", top: "50%", left: 12, transform: "translateY(-50%)",
+                  border: "none", background: "rgba(0,0,0,.4)", backdropFilter: "blur(4px)",
+                  color: "#fff", width: 32, height: 32, borderRadius: 8, cursor: "pointer", fontSize: 16,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  zIndex: 10,
+                }}
+              >‹</button>
+              <button
+                onClick={() => setPhotoIdx(i => (i + 1) % photos.length)}
+                style={{
+                  position: "absolute", top: "50%", right: 12, transform: "translateY(-50%)",
+                  border: "none", background: "rgba(0,0,0,.4)", backdropFilter: "blur(4px)",
+                  color: "#fff", width: 32, height: 32, borderRadius: 8, cursor: "pointer", fontSize: 16,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  zIndex: 10,
+                }}
+              >›</button>
+            </>
+          )}
+          {/* Property name overlay on photo */}
+          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "16px 20px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: T.gold, textTransform: "uppercase", marginBottom: 4 }}>
+              {isVerified ? "✓ Verified Distress Sale" : "📷 Free Preview · Verify to unlock documents"}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+              <div style={{ flex: 1, paddingRight: 12 }}>
+                <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: "#fff", lineHeight: 1.2 }}>{deal.name}</div>
+                <div style={{ fontSize: 12.5, color: "rgba(255,255,255,.75)", marginTop: 3 }}>{deal.district}, Abuja · Verified by {deal.verifiedBy}</div>
+              </div>
+              <div style={{ zIndex: 10, marginBottom: 4 }}>
+                <HeartBtn dealId={deal.id} savedIds={savedIds} onToggle={onToggleSave} size="modal" />
+              </div>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: T.card, borderRadius: 10, width: 34, height: 34, cursor: "pointer", fontSize: 16 }}>
-            ✕
-          </button>
         </div>
 
-        {/* numbers grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 16 }}>
+        {/* ── Modal body (scrollable) ── */}
+        <div className="deal-modal-body" style={{ padding: 22, overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
+          <div>
+            <SectionLabel>AI Deal Intelligence Report</SectionLabel>
+          </div>
+          {/* Verified badge */}
+          {isVerified ? (
+            <Pill bg={T.mint} color={T.green}>✓ Identity Verified</Pill>
+          ) : (
+            <Pill bg={T.goldSoft} color="#7A5800">🔒 Documents locked</Pill>
+          )}
+        </div>
+
+        {/* ── Numbers grid — asking price always visible, negotiation/market gated ── */}
+        <div className="deal-numbers-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 16 }}>
           {[
-            ["Asking price", fmtFull(deal.asking, cur), T.ink],
-            ["AI market value", fmtFull(deal.market, cur), T.green],
-            ["Discount", "−" + disc + "%", T.amber],
-            ["AI negotiation range", `${fmtN(deal.negotiation[0], cur)} – ${fmtN(deal.negotiation[1], cur)}`, T.ink],
-          ].map(([k, v, c]) => (
-            <div key={k} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px" }}>
+            ["Asking price", fmtFull(deal.asking, cur), T.ink, false],
+            ["AI market value", isVerified ? fmtFull(deal.market, cur) : "Verify to view", T.green, !isVerified],
+            ["Discount", "−" + disc + "%", T.amber, false],
+            ["AI negotiation range", isVerified ? `${fmtN(deal.negotiation[0], cur)} – ${fmtN(deal.negotiation[1], cur)}` : "Verify to view", T.ink, !isVerified],
+          ].map(([k, v, c, locked]) => (
+            <div key={k} style={{
+              background: T.card,
+              border: `1px solid ${locked ? T.line : T.line}`,
+              borderRadius: 12,
+              padding: "12px 14px",
+              position: "relative",
+              overflow: "hidden",
+            }}>
               <div style={{ fontSize: 11, color: T.sub, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8 }}>{k}</div>
-              <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 17, color: c, marginTop: 4 }}>{v}</div>
+              <div style={{
+                fontFamily: "'Bricolage Grotesque'",
+                fontWeight: 700,
+                fontSize: 17,
+                color: locked ? "transparent" : c,
+                marginTop: 4,
+                filter: locked ? "blur(6px)" : "none",
+                userSelect: locked ? "none" : "auto",
+              }}>{locked ? "₦000,000,000" : v}</div>
+              {locked && (
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: T.sub,
+                  gap: 4,
+                }}>🔒 Verify</div>
+              )}
             </div>
           ))}
         </div>
 
-        {/* trust and verification + AI forensics trigger */}
+        {/* trust and verification + AI forensics trigger — only shown to verified users */}
+        {isVerified && (
         <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 16, marginTop: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <SectionLabel color={T.gold}>Trust & Verification</SectionLabel>
@@ -787,11 +1463,13 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard }) => {
             AI verification supports — never replaces — your own lawyer. Full search report is shareable with your counsel.
           </div>
         </div>
+        )} {/* end isVerified trust section */}
 
-        {/* escrow */}
+        {/* escrow — verified only */}
+        {isVerified && (
         <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 16, marginTop: 14 }}>
           <SectionLabel>Escrow — funds released by milestone</SectionLabel>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div className="escrow-steps" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {steps.map((s, i) => (
               <button
                 key={s}
@@ -817,9 +1495,85 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard }) => {
             Held with a licensed partner bank. Pay in ₦ locally or from abroad — Paystack, bank transfer, or domiciliary FX.
           </div>
         </div>
+        )} {/* end isVerified escrow section */}
 
-        {/* flywheel */}
-        {deal.shortlet && (
+        {/* ROI Calculator — verified only */}
+        {isVerified && (
+          <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 16, marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <SectionLabel color={T.teal}>AI Investment ROI Calculator</SectionLabel>
+              {!roiData && !roiLoading && (
+                <button
+                  id="run-roi-btn"
+                  onClick={runRoi}
+                  style={{
+                    background: `linear-gradient(135deg, ${T.teal}, #0A5460)`,
+                    color: "#fff", border: "none", borderRadius: 10,
+                    padding: "6px 12px", fontWeight: 700, fontSize: 11.5,
+                    cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+                  }}
+                >
+                  ✦ Run 5-Year ROI Model
+                </button>
+              )}
+            </div>
+
+            {roiLoading && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 0", color: T.sub, fontSize: 13 }}>
+                <span style={{ width: 18, height: 18, border: `3px solid ${T.line}`, borderTopColor: T.teal, borderRadius: "50%", display: "inline-block", animation: "spin .7s linear infinite", flexShrink: 0 }} />
+                Gemini modelling 5-year cash flows…
+              </div>
+            )}
+
+            {!roiData && !roiLoading && (
+              <div style={{ fontSize: 13, color: T.sub, lineHeight: 1.5 }}>
+                Get a 5-year ROI breakdown: payback period, cumulative net, and year-by-year cash flow projection.
+              </div>
+            )}
+
+            {roiData && !roiData.error && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {roiData.isDemo && (
+                  <div style={{ fontSize: 11, color: T.amber, background: T.amberSoft, borderRadius: 7, padding: "5px 10px" }}>Demo mode — add GEMINI_API_KEY for live modelling</div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8 }}>
+                  {[
+                    ["Payback Period", roiData.paybackYears ? `${roiData.paybackYears} yrs` : "N/A", T.teal],
+                    ["5-Yr Net Income", roiData.fiveYearNet ? fmtN(roiData.fiveYearNet, cur) : "—", T.green],
+                    ["Gross Yield", roiData.grossYield ? `${roiData.grossYield}%` : "—", T.gold],
+                    ["IRR (est)", roiData.irr ? `${roiData.irr}%` : "—", T.ink],
+                  ].map(([label, value, color]) => (
+                    <div key={label} style={{ background: T.paper, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                      <div style={{ fontSize: 10, color: T.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
+                      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color, marginTop: 3 }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                {(roiData.yearlyBreakdown || []).length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: T.sub, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 2 }}>Year-by-Year Net Income</div>
+                    {roiData.yearlyBreakdown.map((yr, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", background: i % 2 === 0 ? T.tealSoft : T.paper, borderRadius: 8 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>Year {yr.year}</span>
+                        <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 14, color: T.teal }}>{fmtN(yr.netIncome, cur)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {roiData.insight && (
+                  <div style={{ fontSize: 12, color: T.sub, fontStyle: "italic", lineHeight: 1.5, padding: "8px 10px", background: T.paper, borderRadius: 8 }}>💡 {roiData.insight}</div>
+                )}
+              </div>
+            )}
+
+            {roiData?.error && (
+              <div style={{ color: T.risk, fontSize: 13, padding: "10px 0" }}>Could not load ROI model — check your connection or API key.</div>
+            )}
+          </div>
+        )}
+
+        {/* flywheel — verified only */}
+        {isVerified && deal.shortlet && (
           <div style={{ background: T.teal, borderRadius: 14, padding: 18, marginTop: 14, color: "#fff" }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.6, opacity: 0.85 }}>BUY SMART → EARN SMART</div>
             <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, marginTop: 6 }}>
@@ -834,7 +1588,22 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard }) => {
               </Btn>
             </div>
           </div>
+        )} {/* end isVerified flywheel */}
+        {/* ── Verification gate — shown when user is not verified ── */}
+        {!isVerified && (
+          <VerificationGate onSignIn={onSignInRequest} />
         )}
+
+        {/* ── Inspection request flow ── */}
+        <InspectionRequest deal={deal} user={user} onToast={onToast} />
+
+        {/* ── Purchase Offer Submission — verified only ── */}
+        {isVerified && (
+          <OfferForm deal={deal} user={user} cur={cur} onToast={onToast} />
+        )}
+
+        </div>{/* end modal body */}
+
       </div>
     </div>
   );
@@ -842,7 +1611,7 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard }) => {
 
 /* ---------------- Deals view ---------------- */
 
-const DealsView = ({ cur, onOpen, query, setQuery, dealsList, onAiSearch, aiResults, aiSearching, usingEmulator }) => {
+const DealsView = ({ cur, onOpen, query, setQuery, dealsList, onAiSearch, aiResults, aiSearching, usingEmulator, savedIds, onToggleSave, compareIds, onToggleCompare }) => {
   const [pidgin, setPidgin] = useState(false);
   const parsed = useMemo(() => {
     const q = query.toLowerCase();
@@ -989,9 +1758,9 @@ const DealsView = ({ cur, onOpen, query, setQuery, dealsList, onAiSearch, aiResu
       )}
 
       {/* grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginTop: 16 }}>
+      <div className="deal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginTop: 16 }}>
         {deals.map((d) => (
-          <DealCard key={d.id} deal={d} cur={cur} onOpen={onOpen} />
+          <DealCard key={d.id} deal={d} cur={cur} onOpen={onOpen} savedIds={savedIds} onToggleSave={onToggleSave} compareIds={compareIds} onToggleCompare={onToggleCompare} />
         ))}
         {deals.length === 0 && (
           <div style={{ gridColumn: "1/-1", background: T.card, border: `1px dashed ${T.line}`, borderRadius: 14, padding: 24, textAlign: "center", color: T.sub, fontSize: 14 }}>
@@ -1008,42 +1777,50 @@ const DealsView = ({ cur, onOpen, query, setQuery, dealsList, onAiSearch, aiResu
 
 
 
-/* ---------------- WhatsApp assistant ---------------- */
-
-const waReply = (msg) => {
-  const q = msg.toLowerCase();
-  if (q.includes("jabi"))
-    return "I get 2 verified options for Jabi 👌 — a 3-bed at ₦95m (Trust 92, C of O, −21% vs market) and a lakeside studio pair. You wan make I book inspection for Saturday or send the AI deal report here?";
-  if (q.includes("shortlet") || q.includes("manage"))
-    return "For shortlet management: we handle pricing, guests, cleaning & maintenance. Typical Guzape 2-bed nets ₦1.9m/month at 74% occupancy. Send your property location and photos, the AI will project your earnings in 2 minutes.";
-  if (q.includes("escrow") || q.includes("pay"))
-    return "Payments sit in escrow with our licensed partner bank and only release when: (1) AGIS search is clean, (2) documents are executed, (3) you take possession. You can pay from abroad in USD/GBP too. 🔒";
-  if (q.includes("land") || q.includes("lugbe"))
-    return "Verified land in Lugbe: 2 plots at ₦38m (regularization at Stage 3 of 5 — I go show you the file status). Note: one corner of that axis carries a seasonal flood-watch flag, so the report includes drainage guidance. Want the full title breakdown?";
-  return "You fit ask me anything — search deals, check title status, book inspection, or project shortlet earnings. Try: \u201cFind me 2-bed for Jabi under 100m\u201d 🙂";
-};
+/* ---------------- WhatsApp AI Concierge (live Gemini) ---------------- */
 
 const WhatsAppPanel = ({ open, setOpen }) => {
   const [msgs, setMsgs] = useState([
-    { me: false, t: "Welcome to The Landlord Property AI 🇳🇬 — I dey here 24/7. Ask in English or Pidgin: deals, titles, escrow, or shortlet earnings." },
+    { me: false, t: "Welcome to The Landlord Property 🇳🇬 — I dey here 24/7. Ask in English or Pidgin: deals, titles, escrow, or shortlet earnings." },
   ]);
   const [inp, setInp] = useState("");
+  const [aiTyping, setAiTyping] = useState(false);
+  const historyRef = useRef([]);
   const boxRef = useRef(null);
+
   useEffect(() => {
     if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
-  }, [msgs, open]);
-  const send = () => {
-    if (!inp.trim()) return;
+  }, [msgs, aiTyping, open]);
+
+  const send = async () => {
+    if (!inp.trim() || aiTyping) return;
     const mine = inp.trim();
     setMsgs((m) => [...m, { me: true, t: mine }]);
     setInp("");
-    setTimeout(() => setMsgs((m) => [...m, { me: false, t: waReply(mine) }]), 500);
+    setAiTyping(true);
+    historyRef.current = [...historyRef.current, { role: 'user', text: mine }];
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: mine, history: historyRef.current.slice(-10) }),
+      });
+      const data = await res.json();
+      const reply = data.reply || "I go check that — try again in a moment.";
+      historyRef.current = [...historyRef.current, { role: 'model', text: reply }];
+      setMsgs((m) => [...m, { me: false, t: reply }]);
+    } catch {
+      setMsgs((m) => [...m, { me: false, t: "Network error — please check your connection. 🙏" }]);
+    } finally {
+      setAiTyping(false);
+    }
   };
   return (
     <>
       <button
         onClick={() => setOpen(!open)}
         aria-label="Open WhatsApp AI assistant"
+        className="wa-fab"
         style={{
           position: "fixed",
           right: 18,
@@ -1067,6 +1844,7 @@ const WhatsAppPanel = ({ open, setOpen }) => {
       </button>
       {open && (
         <div
+          className="wa-panel"
           style={{
             position: "fixed",
             right: 18,
@@ -1084,7 +1862,7 @@ const WhatsAppPanel = ({ open, setOpen }) => {
         >
           <div style={{ background: "#0B3D2E", color: "#fff", padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>Landlord AI · WhatsApp</div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>Landlord Property · WhatsApp</div>
               <div style={{ fontSize: 11.5, opacity: 0.8 }}>Online · replies in seconds · English / Pidgin</div>
             </div>
             <button onClick={() => setOpen(false)} aria-label="Close chat" style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", borderRadius: 8, width: 28, height: 28, cursor: "pointer" }}>
@@ -1110,6 +1888,14 @@ const WhatsAppPanel = ({ open, setOpen }) => {
                 {m.t}
               </div>
             ))}
+            {aiTyping && (
+              <div style={{ alignSelf: "flex-start", background: "#fff", borderRadius: "12px 12px 12px 3px", padding: "10px 14px", display: "flex", gap: 5, boxShadow: "0 1px 1px rgba(0,0,0,.08)" }}>
+                {[0,1,2].map(i => (
+                  <span key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: "#aaa", display: "inline-block", animation: `waDot .9s ${i * 0.2}s infinite ease-in-out` }} />
+                ))}
+                <style>{`@keyframes waDot{0%,80%,100%{transform:scale(0.6);opacity:.4}40%{transform:scale(1);opacity:1}}`}</style>
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", gap: 8, padding: 10, borderTop: `1px solid ${T.line}` }}>
             <input
@@ -1120,7 +1906,7 @@ const WhatsAppPanel = ({ open, setOpen }) => {
               aria-label="Message the AI assistant"
               style={{ flex: 1, border: `1px solid ${T.line}`, borderRadius: 999, padding: "9px 14px", fontSize: 13.5, outline: "none", fontFamily: "'Instrument Sans'" }}
             />
-            <Btn kind="wa" small onClick={send}>Send</Btn>
+            <Btn kind="wa" small onClick={send} disabled={aiTyping}>Send</Btn>
           </div>
         </div>
       )}
@@ -1128,10 +1914,616 @@ const WhatsAppPanel = ({ open, setOpen }) => {
   );
 };
 
+/* ─── Offer Form Component ─── */
+const OfferForm = ({ deal, user, cur, onToast }) => {
+  const [stage, setStage] = useState("idle"); // idle | form | submitting | done
+  const [pastOffers, setPastOffers] = useState([]);
+  const [loadingPast, setLoadingPast] = useState(false);
+  const [offerData, setOfferData] = useState({
+    offerPrice: deal?.asking ? String(Math.round(deal.asking * 0.95)) : "",
+    financing: "cash",
+    timeline: "30",
+    note: "",
+  });
+
+  // Load past offers from Firestore for this deal & user
+  useEffect(() => {
+    if (!user?.uid || !deal?.id) return;
+    setLoadingPast(true);
+    const q = query(
+      collection(db, "offers"),
+      where("userId", "==", user.uid),
+      where("dealId", "==", deal.id),
+      orderBy("createdAt", "desc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setPastOffers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoadingPast(false);
+    }, (err) => {
+      console.warn("[OfferForm] Could not load past offers:", err.message);
+      setLoadingPast(false);
+    });
+    return unsub;
+  }, [user?.uid, deal?.id]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!offerData.offerPrice || !user) return;
+    setStage("submitting");
+    try {
+      const offerPrice = Number(offerData.offerPrice);
+      const discountFromAsking = Math.round(((deal.asking - offerPrice) / deal.asking) * 100);
+      await addDoc(collection(db, "offers"), {
+        userId: user.uid,
+        userEmail: user.email || "",
+        userName: user.displayName || user.email?.split("@")[0] || "Buyer",
+        dealId: deal.id,
+        dealName: deal.name,
+        district: deal.district,
+        askingPrice: deal.asking,
+        offerPrice,
+        discountFromAsking,
+        financing: offerData.financing,
+        timeline: Number(offerData.timeline),
+        note: offerData.note,
+        status: "Submitted",
+        createdAt: serverTimestamp(),
+      });
+
+      // Log activity
+      await addDoc(collection(db, "activity_logs"), {
+        userId: user.uid,
+        action: "offer_submitted",
+        details: `Offer of ₦${offerPrice.toLocaleString()} submitted for "${deal.name}" (${deal.district}). ${discountFromAsking > 0 ? discountFromAsking + '% below asking.' : 'At or above asking price.'}`,
+        createdAt: serverTimestamp(),
+      });
+
+      setStage("done");
+      if (onToast) onToast(`Offer of ₦${offerPrice.toLocaleString()} submitted! The team will respond within 2 hours.`);
+    } catch (err) {
+      console.error("[OfferForm] Failed to submit offer:", err);
+      setStage("form");
+      if (onToast) onToast("Failed to submit offer — please try again.");
+    }
+  };
+
+  const offerPriceNum = Number(offerData.offerPrice) || 0;
+  const discountFromAsking = deal?.asking && offerPriceNum > 0
+    ? Math.round(((deal.asking - offerPriceNum) / deal.asking) * 100)
+    : 0;
+
+  const fmtCur = (n) => {
+    if (cur === "USD") return "$" + Math.round(n / 1550).toLocaleString();
+    return "₦" + n.toLocaleString();
+  };
+
+  const statusColor = (s) => {
+    switch (s) {
+      case "Accepted": return { bg: "#E7F2EC", color: "#0E5A3A" };
+      case "Declined": return { bg: "#FBEAE8", color: "#B3261E" };
+      case "Counter-Offer": return { bg: "#F6EFD8", color: "#7A5800" };
+      default: return { bg: "#E3F0F2", color: "#0E6B75" };
+    }
+  };
+
+  // Past offers panel
+  if (stage === "idle") {
+    return (
+      <div style={{ marginTop: 14 }}>
+        <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: pastOffers.length > 0 ? 14 : 0 }}>
+            <SectionLabel color={T.purple}>Make an Offer</SectionLabel>
+            <button
+              onClick={() => setStage("form")}
+              style={{
+                background: `linear-gradient(135deg, ${T.purple}, #8B52C9)`,
+                color: "#fff", border: "none", borderRadius: 10,
+                padding: "8px 16px", fontWeight: 700, fontSize: 12,
+                cursor: "pointer", boxShadow: "0 2px 8px rgba(107,63,160,0.3)",
+                display: "flex", alignItems: "center", gap: 5,
+              }}
+            >
+              ✦ Submit an Offer
+            </button>
+          </div>
+
+          {/* Past offers */}
+          {loadingPast && (
+            <div style={{ fontSize: 12, color: T.sub, padding: "8px 0" }}>Loading your previous offers…</div>
+          )}
+          {!loadingPast && pastOffers.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {pastOffers.map(offer => {
+                const sc = statusColor(offer.status);
+                return (
+                  <div key={offer.id} style={{
+                    background: T.paper, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14,
+                    display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap"
+                  }}>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17, color: T.ink }}>
+                        {fmtCur(offer.offerPrice)}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.sub, marginTop: 1 }}>
+                        {offer.financing === "cash" ? "💰 Cash offer" : offer.financing === "mortgage" ? "🏦 Mortgage financing" : "🤝 Instalment plan"} ·{" "}
+                        {offer.timeline}-day close
+                        {offer.discountFromAsking > 0 && <span style={{ color: T.amber, fontWeight: 700 }}> · {offer.discountFromAsking}% below asking</span>}
+                      </div>
+                      {offer.note && <div style={{ fontSize: 12, color: T.sub, marginTop: 4, fontStyle: "italic" }}>"{offer.note}"</div>}
+                    </div>
+                    <span style={{ background: sc.bg, color: sc.color, padding: "4px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {offer.status}
+                    </span>
+                    <div style={{ fontSize: 10.5, color: "rgba(12,43,31,.4)", fontWeight: 600 }}>
+                      {offer.createdAt ? new Date(offer.createdAt.seconds * 1000).toLocaleDateString([], { day: "numeric", month: "short" }) : "Just now"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!loadingPast && pastOffers.length === 0 && (
+            <p style={{ fontSize: 13, color: T.sub, margin: "8px 0 0 0", lineHeight: 1.5 }}>
+              Submit a formal offer below. Our team will review and respond within 2 hours. Accepted offers move to escrow automatically.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === "done") {
+    return (
+      <div style={{ marginTop: 14, background: T.mint, border: `1.5px solid ${T.green}`, borderRadius: 14, padding: 20, display: "flex", gap: 14, alignItems: "flex-start", animation: "slideup .3s ease" }}>
+        <div style={{ fontSize: 32, flexShrink: 0 }}>✅</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 800, fontFamily: "'Bricolage Grotesque'", fontSize: 16, color: T.green }}>
+            Offer Submitted!
+          </div>
+          <div style={{ fontSize: 13.5, color: T.ink, marginTop: 4, lineHeight: 1.5 }}>
+            Your offer of <strong>{fmtCur(Number(offerData.offerPrice))}</strong> on <strong>{deal?.name}</strong> has been received.
+            Our negotiation team will respond within <strong>2 hours</strong> via WhatsApp.
+          </div>
+          <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={() => setStage("idle")}
+              style={{ border: `1.5px solid ${T.green}`, background: "transparent", color: T.green, borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+            >
+              View My Offers
+            </button>
+            <button
+              onClick={() => { setStage("form"); setOfferData(prev => ({ ...prev, note: "" })); }}
+              style={{ border: `1.5px solid ${T.line}`, background: "transparent", color: T.sub, borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+            >
+              Revise Offer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Offer form
+  return (
+    <div style={{ marginTop: 14, background: T.card, border: `1.5px solid ${T.purple}33`, borderRadius: 14, padding: 20, animation: "slideup .25s ease" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <SectionLabel color={T.purple}>✦ Submit Purchase Offer</SectionLabel>
+        <button onClick={() => setStage("idle")} style={{ border: "none", background: "none", color: T.sub, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>✕</button>
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Offer price */}
+        <div>
+          <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 5 }}>
+            Your Offer Price (₦) *
+          </label>
+          <div style={{ position: "relative" }}>
+            <input
+              type="number"
+              required
+              value={offerData.offerPrice}
+              onChange={e => setOfferData(prev => ({ ...prev, offerPrice: e.target.value }))}
+              style={{ width: "100%", padding: "12px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, fontSize: 15, fontWeight: 700, fontFamily: "'Bricolage Grotesque'", color: T.ink, outline: "none", boxSizing: "border-box" }}
+              onFocus={e => e.target.style.borderColor = T.purple}
+              onBlur={e => e.target.style.borderColor = T.line}
+            />
+          </div>
+          {offerPriceNum > 0 && (
+            <div style={{ marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
+              <span style={{ color: T.sub }}>Asking: <strong>{fmtCur(deal?.asking)}</strong></span>
+              {discountFromAsking > 0 && <span style={{ color: T.amber, fontWeight: 700 }}>−{discountFromAsking}% below asking</span>}
+              {discountFromAsking < 0 && <span style={{ color: T.green, fontWeight: 700 }}>+{Math.abs(discountFromAsking)}% above asking</span>}
+              {deal?.negotiation?.[0] && offerPriceNum >= deal.negotiation[0] && offerPriceNum <= deal.negotiation[1] && (
+                <span style={{ color: T.green, fontWeight: 700 }}>✓ Within AI negotiation range</span>
+              )}
+            </div>
+          )}
+          {/* Quick offer buttons */}
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {[
+              { label: "Asking", val: deal?.asking },
+              { label: "−5%", val: Math.round(deal?.asking * 0.95) },
+              { label: "−10%", val: Math.round(deal?.asking * 0.90) },
+              { label: "−15%", val: Math.round(deal?.asking * 0.85) },
+            ].map(({ label, val }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setOfferData(prev => ({ ...prev, offerPrice: String(val) }))}
+                style={{
+                  border: `1.5px solid ${Number(offerData.offerPrice) === val ? T.purple : T.line}`,
+                  background: Number(offerData.offerPrice) === val ? `${T.purple}15` : "transparent",
+                  color: Number(offerData.offerPrice) === val ? T.purple : T.sub,
+                  borderRadius: 8, padding: "4px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", transition: "all .15s"
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Financing type */}
+        <div>
+          <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 5 }}>Financing Type *</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[
+              { val: "cash", label: "💰 Full Cash", desc: "No financing — strongest offer" },
+              { val: "mortgage", label: "🏦 Mortgage", desc: "Bank or HFI financing" },
+              { val: "installment", label: "🤝 Instalment", desc: "Agreed payment plan" },
+            ].map(f => (
+              <button
+                key={f.val}
+                type="button"
+                onClick={() => setOfferData(prev => ({ ...prev, financing: f.val }))}
+                style={{
+                  flex: "1 1 120px",
+                  border: `1.5px solid ${offerData.financing === f.val ? T.purple : T.line}`,
+                  background: offerData.financing === f.val ? `${T.purple}12` : T.paper,
+                  borderRadius: 10, padding: "10px 12px", cursor: "pointer",
+                  textAlign: "left", transition: "all .15s"
+                }}
+              >
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: offerData.financing === f.val ? T.purple : T.ink }}>{f.label}</div>
+                <div style={{ fontSize: 10.5, color: T.sub, marginTop: 2 }}>{f.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Settlement timeline */}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>Settlement Timeline</label>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: T.purple }}>{offerData.timeline} days</span>
+          </div>
+          <input
+            type="range"
+            min={14}
+            max={90}
+            step={7}
+            value={offerData.timeline}
+            onChange={e => setOfferData(prev => ({ ...prev, timeline: e.target.value }))}
+            style={{ width: "100%", accentColor: T.purple }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: T.sub, marginTop: 3 }}>
+            <span>14 days (urgent)</span>
+            <span>90 days (standard)</span>
+          </div>
+        </div>
+
+        {/* Buyer note */}
+        <div>
+          <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 5 }}>
+            Personal Note to Seller <span style={{ fontWeight: 400, color: T.sub }}>(optional)</span>
+          </label>
+          <textarea
+            value={offerData.note}
+            onChange={e => setOfferData(prev => ({ ...prev, note: e.target.value }))}
+            placeholder="Introduce yourself, your reason for buying, or any flexibility you can offer…"
+            style={{ width: "100%", height: 72, padding: "10px 12px", border: `1.5px solid ${T.line}`, borderRadius: 10, fontSize: 13, resize: "none", fontFamily: "'Instrument Sans'", boxSizing: "border-box", outline: "none" }}
+            onFocus={e => e.target.style.borderColor = T.purple}
+            onBlur={e => e.target.style.borderColor = T.line}
+          />
+        </div>
+
+        {/* Summary + submit */}
+        <div style={{ background: `${T.purple}08`, border: `1px solid ${T.purple}22`, borderRadius: 12, padding: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.purple, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Offer Summary</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", fontSize: 12.5 }}>
+            <span style={{ color: T.sub }}>Offer Price:</span>
+            <span style={{ fontWeight: 700, color: T.ink, fontFamily: "'Bricolage Grotesque'" }}>{offerPriceNum > 0 ? fmtCur(offerPriceNum) : "—"}</span>
+            <span style={{ color: T.sub }}>Financing:</span>
+            <span style={{ fontWeight: 600, color: T.ink, textTransform: "capitalize" }}>{offerData.financing}</span>
+            <span style={{ color: T.sub }}>Close in:</span>
+            <span style={{ fontWeight: 600, color: T.ink }}>{offerData.timeline} days</span>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={stage === "submitting" || !offerData.offerPrice}
+          style={{
+            background: stage === "submitting" || !offerData.offerPrice
+              ? T.line
+              : `linear-gradient(135deg, ${T.purple}, #8B52C9)`,
+            color: stage === "submitting" || !offerData.offerPrice ? T.sub : "#fff",
+            border: "none", borderRadius: 12, padding: "13px 0",
+            fontWeight: 800, fontSize: 15, cursor: !offerData.offerPrice ? "default" : "pointer",
+            transition: "all .15s", boxShadow: offerData.offerPrice ? "0 4px 14px rgba(107,63,160,.3)" : "none",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+          }}
+        >
+          {stage === "submitting" ? (
+            <>
+              <span style={{ width: 16, height: 16, border: "2.5px solid rgba(255,255,255,.3)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin .7s linear infinite" }} />
+              Submitting Offer…
+            </>
+          ) : "✦ Submit Offer →"}
+        </button>
+
+        <div style={{ fontSize: 11.5, color: T.sub, textAlign: "center" }}>
+          By submitting, you confirm this is a genuine intent to purchase. No money moves until escrow is agreed and formally executed.
+        </div>
+      </form>
+    </div>
+  );
+};
+
+/* ─── Real-time Notification Bell Component ─── */
+const NotificationBell = ({ user }) => {
+  const [notifications, setNotifications] = useState([]);
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  // Listen to Firestore notifications in real-time
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, "notifications"),
+      where("userId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setNotifications(list);
+    }, (err) => {
+      console.warn("[NotificationBell] Firestore read error (check security rules/emulator):", err.message);
+    });
+    return unsubscribe;
+  }, [user]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const markAllAsRead = async () => {
+    const unread = notifications.filter(n => !n.read);
+    if (unread.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      unread.forEach((n) => {
+        const docRef = doc(db, "notifications", n.id);
+        batch.update(docRef, { read: true });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error("[NotificationBell] Failed to mark all as read:", err);
+    }
+  };
+
+  const toggleRead = async (notif) => {
+    try {
+      const docRef = doc(db, "notifications", notif.id);
+      await updateDoc(docRef, { read: !notif.read });
+    } catch (err) {
+      console.error("[NotificationBell] Failed to toggle read status:", err);
+    }
+  };
+
+  const getChannelIcon = (type) => {
+    switch (type) {
+      case "email": return "📧";
+      case "sms": return "📱";
+      case "whatsapp": return "💬";
+      default: return "🔔";
+    }
+  };
+
+  return (
+    <div ref={dropdownRef} style={{ position: "relative" }}>
+      {/* Bell Button */}
+      <button
+        onClick={() => setOpen(!open)}
+        aria-label={`${unreadCount} unread notifications`}
+        style={{
+          background: "transparent",
+          border: "none",
+          fontSize: 18,
+          cursor: "pointer",
+          width: 36,
+          height: 36,
+          borderRadius: "50%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: T.ink,
+          position: "relative",
+          transition: "background .15s ease",
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = "rgba(12,43,31,0.06)"}
+        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+      >
+        🔔
+        {unreadCount > 0 && (
+          <span style={{
+            position: "absolute",
+            top: 2,
+            right: 2,
+            background: T.risk,
+            color: "#fff",
+            borderRadius: "50%",
+            width: 16,
+            height: 16,
+            fontSize: 9.5,
+            fontWeight: 800,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 0 0 2px #fff",
+          }}>
+            {unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Dropdown Menu */}
+      {open && (
+        <div style={{
+          position: "absolute",
+          top: 44,
+          right: 0,
+          width: 320,
+          maxHeight: 400,
+          background: "#ffffff",
+          borderRadius: 16,
+          boxShadow: "0 10px 30px rgba(12,43,31,0.15), 0 0 0 1px rgba(12,43,31,0.06)",
+          zIndex: 100,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          animation: "lp-fadeup .2s cubic-bezier(.22,1,.36,1)",
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: "12px 16px",
+            borderBottom: `1px solid ${T.line}`,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            background: "#fcfdfb"
+          }}>
+            <span style={{ fontWeight: 700, color: T.ink, fontSize: 13.5 }}>Notifications</span>
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllAsRead}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: T.green,
+                  fontWeight: 700,
+                  fontSize: 11.5,
+                  cursor: "pointer",
+                  padding: 0
+                }}
+              >
+                Mark all as read
+              </button>
+            )}
+          </div>
+
+          {/* List */}
+          <div style={{ overflowY: "auto", flex: 1, maxHeight: 340 }}>
+            {notifications.length === 0 ? (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: T.sub, fontSize: 13 }}>
+                <span style={{ fontSize: 24, display: "block", marginBottom: 8 }}>📭</span>
+                No notifications yet
+              </div>
+            ) : (
+              notifications.map((n) => (
+                <div
+                  key={n.id}
+                  onClick={() => toggleRead(n)}
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: `1px solid ${T.line}`,
+                    background: n.read ? "transparent" : "rgba(14,90,58,0.03)",
+                    cursor: "pointer",
+                    display: "flex",
+                    gap: 12,
+                    alignItems: "flex-start",
+                    transition: "background .12s ease",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = n.read ? "rgba(12,43,31,0.02)" : "rgba(14,90,58,0.05)"}
+                  onMouseLeave={e => e.currentTarget.style.background = n.read ? "transparent" : "rgba(14,90,58,0.03)"}
+                >
+                  <span style={{ fontSize: 16, marginTop: 1 }}>{getChannelIcon(n.type)}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{
+                      fontWeight: n.read ? 600 : 700,
+                      fontSize: 12.5,
+                      color: T.ink,
+                      lineHeight: 1.3
+                    }}>
+                      {n.title}
+                    </div>
+                    <div style={{
+                      fontSize: 11.5,
+                      color: T.sub,
+                      marginTop: 3,
+                      lineHeight: 1.4,
+                      whiteSpace: "pre-line"
+                    }}>
+                      {n.message}
+                    </div>
+                    <div style={{
+                      fontSize: 9.5,
+                      color: "rgba(12,43,31,0.4)",
+                      marginTop: 4,
+                      fontWeight: 600
+                    }}>
+                      {n.createdAt ? new Date(n.createdAt.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
+                    </div>
+                  </div>
+                  {!n.read && (
+                    <span style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background: T.green,
+                      alignSelf: "center",
+                      marginLeft: 4
+                    }} />
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ---------------- App ---------------- */
 
 export default function App() {
-  const [tab, setTab] = useState("deals");
+  const [tab, setTab] = useState(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "");
+      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin"].includes(hash)) {
+        return hash;
+      }
+      const path = window.location.pathname.replace(/^\/|\/$/g, "");
+      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin"].includes(path)) {
+        return path;
+      }
+    }
+    return "deals";
+  });
   const [cur, setCur] = useState("NGN");
   const [modal, setModal] = useState(null);
   const [waOpen, setWaOpen] = useState(false);
@@ -1140,18 +2532,117 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
+  const [pushPermission, setPushPermission] = useState(null); // null | 'default' | 'granted' | 'denied'
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(false);
+  const [fcmForegroundNotif, setFcmForegroundNotif] = useState(null);
 
-  // Initialize stateful deals list with "Published" status
+  // Saved / Watchlist deals state (Set of deal IDs)
+  const [savedIds, setSavedIds] = useState(() => {
+    try {
+      const stored = localStorage.getItem("lp_saved_deals");
+      return new Set(stored ? JSON.parse(stored) : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Compare deals state (array of up to 3 deal IDs)
+  const [compareIds, setCompareIds] = useState([]);
+
+  // Sync saved deals to localStorage on change
+  useEffect(() => {
+    localStorage.setItem("lp_saved_deals", JSON.stringify(Array.from(savedIds)));
+  }, [savedIds]);
+
+  // Load/sync saved deals from/to Firestore on authentication change
+  useEffect(() => {
+    if (!user) return;
+    const loadFirestoreSaved = async () => {
+      try {
+        const docRef = doc(db, "users", user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.savedDeals) {
+            setSavedIds(prev => {
+              const next = new Set(prev);
+              data.savedDeals.forEach(id => next.add(id));
+              return next;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[App] Could not load saved deals from Firestore:", err.message);
+      }
+    };
+    loadFirestoreSaved();
+  }, [user]);
+
+  // Handler to toggle saved status
+  const toggleSave = async (dealId) => {
+    let nextSaved;
+    let isAdded = false;
+    setSavedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(dealId)) {
+        next.delete(dealId);
+      } else {
+        next.add(dealId);
+        isAdded = true;
+      }
+      nextSaved = next;
+      return next;
+    });
+
+    if (user) {
+      try {
+        const docRef = doc(db, "users", user.uid);
+        await updateDoc(docRef, {
+          savedDeals: isAdded ? arrayUnion(dealId) : arrayRemove(dealId)
+        });
+      } catch (err) {
+        console.warn("[App] Could not sync saved deals update to Firestore:", err.message);
+      }
+    }
+    
+    setToast(isAdded ? "Deal added to saved watchlist! ❤️" : "Deal removed from saved watchlist.");
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Handler to toggle compare list (max 3)
+  const toggleCompare = (dealId) => {
+    setCompareIds(prev => {
+      if (prev.includes(dealId)) {
+        return prev.filter(id => id !== dealId);
+      }
+      if (prev.length >= 3) {
+        setToast("Maximum 3 properties can be compared at once.");
+        setTimeout(() => setToast(null), 3000);
+        return prev;
+      }
+      return [...prev, dealId];
+    });
+  };
+
+  // Initialize stateful deals list with diverse status configuration to test all pipeline states
   const [dealsList, setDealsList] = useState(() => {
     try {
-      const stored = localStorage.getItem("lp_admin_deals");
+      const stored = localStorage.getItem("lp_admin_deals_v2");
       if (stored) return JSON.parse(stored);
     } catch (e) {
       console.error(e);
     }
+    const statusMap = {
+      d1: "Published",
+      d2: "Verified",
+      d3: "Draft",
+      d4: "Under Review",
+      d5: "Published",
+      d6: "Sold",
+    };
     return DEALS.map(d => ({
       ...d,
-      status: "Published",
+      status: statusMap[d.id] || "Published",
       negotiation_low: d.negotiation ? d.negotiation[0] : "",
       negotiation_high: d.negotiation ? d.negotiation[1] : "",
       shortlet_nightly: d.shortlet ? d.shortlet.nightly : "",
@@ -1162,6 +2653,7 @@ export default function App() {
 
   const [usingEmulator, setUsingEmulator] = useState(false);
   const [dbProperties, setDbProperties] = useState([]);
+  const [dbRefreshTrigger, setDbRefreshTrigger] = useState(0);
 
   // AI semantic search state
   const [aiResults, setAiResults] = useState(null);
@@ -1199,19 +2691,22 @@ export default function App() {
   };
 
 
-  // Check if emulator is active on startup
+  // Check if emulator is active on startup by pinging the Emulator Hub
   useEffect(() => {
     const checkEmulator = async () => {
       try {
-        await fetchDistrictAvailability(dataConnect, {
-          district: "TestConnectionOnly",
-          checkIn: "2026-07-01",
-          checkOut: "2026-07-02"
-        });
-        setUsingEmulator(true);
-        console.log("SQL Connect emulator is active! Live database connection enabled.");
+        const res = await fetch("http://localhost:4400/emulators", { signal: AbortSignal.timeout(2000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.dataconnect) {
+            setUsingEmulator(true);
+            console.log("SQL Connect emulator is active! Live database connection enabled.");
+            return;
+          }
+        }
+        setUsingEmulator(false);
       } catch (e) {
-        console.warn("SQL Connect emulator not reachable. Falling back to local storage.", e);
+        console.warn("SQL Connect emulator not reachable. Falling back to local storage.");
         setUsingEmulator(false);
       }
     };
@@ -1220,8 +2715,63 @@ export default function App() {
 
   // Track Firebase Auth state — drives the KYC gate on SecureDistressSearch
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        try {
+          const userDocRef = doc(db, "users", u.uid);
+          await updateDoc(userDocRef, {
+            lastLogin: serverTimestamp()
+          });
+          console.log("[App] Updated user lastLogin in Firestore");
+        } catch (err) {
+          console.warn("[App] Could not update lastLogin in Firestore (user doc may not exist yet or is offline):", err.message);
+        }
+        // Check current push permission state after sign-in
+        if ('Notification' in window) {
+          setPushPermission(Notification.permission);
+        }
+      }
+    });
     return unsubscribe; // cleans up listener on unmount
+  }, []);
+
+  // Register FCM service worker and listen for foreground messages
+  useEffect(() => {
+    if (!user) return;
+    // Register FCM service worker for push support
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
+        .then(reg => console.log('[FCM] Service worker registered:', reg.scope))
+        .catch(err => console.warn('[FCM] SW registration failed (dev mode):', err.message));
+    }
+    // Listen for in-app foreground push messages
+    const unsub = onForegroundMessage((payload) => {
+      const { title, body } = payload.notification || {};
+      setFcmForegroundNotif({ title: title || '🔔 Notification', body });
+      setTimeout(() => setFcmForegroundNotif(null), 6000);
+    });
+    return unsub;
+  }, [user]);
+
+  // Sync URL hash with active tab state
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.location.hash = tab;
+    }
+  }, [tab]);
+
+  // Listen for hash changes to support back/forward browser navigation
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace("#", "");
+      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin"].includes(hash)) {
+        setTab(hash);
+      }
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   // Seed database if emulator is active and not seeded yet
@@ -1229,7 +2779,7 @@ export default function App() {
     if (!usingEmulator) return;
     const seedDatabase = async () => {
       try {
-        const seeded = localStorage.getItem("lp_db_seeded_v2");
+        const seeded = localStorage.getItem("lp_db_seeded_v3");
         if (!seeded) {
           console.log("Seeding SQL Connect database with mock listings & embeddings...");
           for (const d of DEALS) {
@@ -1242,8 +2792,9 @@ export default function App() {
               description: desc
             });
           }
-          localStorage.setItem("lp_db_seeded_v2", "true");
+          localStorage.setItem("lp_db_seeded_v3", "true");
           console.log("Seeding complete!");
+          setDbRefreshTrigger(prev => prev + 1);
         }
       } catch (e) {
         console.error("Failed to seed database:", e);
@@ -1300,7 +2851,7 @@ export default function App() {
       }
     };
     loadProperties();
-  }, [usingEmulator, parsedDistrict]);
+  }, [usingEmulator, parsedDistrict, dbRefreshTrigger]);
 
   const buyAndOnboard = async (deal) => {
     setModal(null);
@@ -1381,7 +2932,7 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
-        body { line-height: 1.5; -webkit-font-smoothing: antialiased; }
+        body { line-height: 1.5; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
         p { margin: 0; }
         button:focus-visible, input:focus-visible { outline: 2.5px solid ${T.gold}; outline-offset: 2px; }
         ::-webkit-scrollbar { height: 8px; width: 8px; }
@@ -1399,9 +2950,215 @@ export default function App() {
         }
         .spinner { animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        /* Diaspora banner gold/white heading */
-        .diaspora-heading {
-          color: #ffffff;
+        .diaspora-heading { color: #ffffff; }
+
+        /* ── Nav label hiding ── */
+        @media (max-width: 1100px) {
+          .nav-label-text { display: none; }
+        }
+
+        /* ── Tablet ── */
+        @media (max-width: 768px) {
+          .header-container {
+            gap: 8px !important;
+            padding: 10px 12px !important;
+          }
+          .nav-btn {
+            padding: 8px 10px !important;
+            min-height: 40px;
+          }
+        }
+
+        /* ── Mobile 600px ── */
+        @media (max-width: 600px) {
+          .nav-btn {
+            padding: 8px !important;
+            min-height: 44px !important;
+            min-width: 44px !important;
+            font-size: 16px !important;
+            border-radius: 10px !important;
+          }
+          .header-container {
+            flex-wrap: wrap !important;
+          }
+        }
+
+        /* ═══════════════════════════════════════════════
+           375px — Small Phone Audit
+           ═══════════════════════════════════════════════ */
+        @media (max-width: 440px) {
+
+          /* Global — prevent any element causing scroll */
+          html, body { max-width: 100vw; overflow-x: hidden; }
+
+          /* Header + logo */
+          .header-container {
+            padding: 10px 10px !important;
+            gap: 6px !important;
+          }
+
+          /* Main padding */
+          main { padding: 12px 10px 100px !important; }
+
+          /* ── Nav buttons: icon-only, 44px tap targets ── */
+          .nav-btn {
+            padding: 0 !important;
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 18px !important;
+            border-radius: 10px !important;
+          }
+          .nav-btn .nav-label-text { display: none !important; }
+
+          /* ── Deal cards: single col, no hover translate ── */
+          .deal-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .deal-card:hover {
+            transform: none !important;
+          }
+
+          /* ── Marketplace submit form: 1-col grids ── */
+          .form-2col { grid-template-columns: 1fr !important; }
+          .form-3col { grid-template-columns: 1fr !important; }
+
+          /* ── Example chips: horizontal scroll ── */
+          .example-chips {
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            padding-bottom: 6px !important;
+            -webkit-overflow-scrolling: touch;
+          }
+          .example-chips button {
+            flex-shrink: 0 !important;
+            white-space: nowrap !important;
+          }
+
+          /* ── Booking calendar: responsive cells ── */
+          .booking-cal-grid {
+            gap: 2px !important;
+          }
+          .booking-cal-cell {
+            padding: 6px 1px 4px !important;
+            font-size: 11px !important;
+            border-radius: 6px !important;
+          }
+          .booking-cal-cell-price {
+            display: none !important;  /* hide price labels on tiny screens */
+          }
+
+          /* ── Booking summary: stacked ── */
+          .booking-summary-grid {
+            grid-template-columns: 1fr !important;
+          }
+
+          /* ── Shortlet browse: 1-col ── */
+          .shortlet-browse-grid {
+            grid-template-columns: 1fr !important;
+          }
+
+          /* ── Deal modal: full width, safe close btn ── */
+          .deal-modal-inner {
+            border-radius: 16px 16px 0 0 !important;
+            max-height: 96vh !important;
+            padding: 0 !important;
+          }
+          .deal-modal-body { padding: 14px !important; }
+          .deal-modal-photo { height: 210px !important; }
+
+          /* ── Marketplace listing modal ── */
+          .listing-modal-inner {
+            border-radius: 16px 16px 0 0 !important;
+            padding: 14px !important;
+            max-height: 96vh !important;
+          }
+
+          /* ── Numbers grid in deal modal: 2-col ── */
+          .deal-numbers-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
+
+          /* ── Footer: single column ── */
+          .footer-grid {
+            grid-template-columns: 1fr !important;
+            gap: 32px !important;
+          }
+
+          /* ── Diaspora banner ── */
+          .diaspora-banner {
+            padding: 24px 16px !important;
+          }
+
+          /* ── WhatsApp button: smaller, stays clear ── */
+          .wa-fab {
+            padding: 12px 14px !important;
+            font-size: 13px !important;
+            right: 12px !important;
+            bottom: 14px !important;
+          }
+          .wa-panel {
+            right: 8px !important;
+            width: calc(100vw - 16px) !important;
+            bottom: 70px !important;
+          }
+
+          /* ── Escrow steps: 1-col ── */
+          .escrow-steps {
+            flex-direction: column !important;
+          }
+
+          /* ── Verification gate grid ── */
+          .verify-locked-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .verify-step-row {
+            flex-direction: column !important;
+          }
+
+          /* ── Auth modal ── */
+          .auth-modal-inner {
+            padding: 20px 14px !important;
+            border-radius: 14px !important;
+          }
+
+          /* ── Marketplace stats strip ── */
+          .marketplace-stats {
+            grid-template-columns: 1fr 1fr !important;
+          }
+
+          /* ── Confirm booking button — full width, 52px tall ── */
+          #confirm-booking-btn {
+            min-height: 52px !important;
+            font-size: 15px !important;
+          }
+          #sign-in-btn {
+            min-height: 44px !important;
+            padding: 9px 16px !important;
+          }
+
+          /* ── Booking calendar sidebar: stack below calendar ── */
+          .booking-view-grid {
+            grid-template-columns: 1fr !important;
+          }
+
+          /* ── Host console form: 1-col ── */
+          .host-post-form {
+            grid-template-columns: 1fr !important;
+          }
+
+          /* ── Marketplace listing modal stats grid ── */
+          .listing-stats-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
+
+          /* ── Map: shorter height on mobile ── */
+          .abuja-map-container {
+            height: 260px !important;
+          }
         }
       `}</style>
 
@@ -1418,30 +3175,24 @@ export default function App() {
           boxShadow: "0 1px 2px rgba(12,43,31,0.02)",
         }}
       >
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "14px 18px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div className="header-container" style={{ maxWidth: 1120, margin: "0 auto", padding: "14px 18px", display: "flex", alignItems: "center", gap: 16, flexWrap: "nowrap" }}>
           
           {/* Logo & Typographic Brand Lockup */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: "auto" }}>
-            <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: 11,
-              background: `linear-gradient(135deg, ${T.green}, ${T.greenDark})`,
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: "'Bricolage Grotesque'",
-              fontWeight: 800,
-              fontSize: 18,
-              boxShadow: "0 2px 8px rgba(14,90,58,0.2)"
-            }}>
-              L
-            </div>
+            <img
+              src="/logo_mark.png"
+              alt="The Landlord Property"
+              style={{
+                height: 40,
+                width: "auto",
+                objectFit: "contain",
+                flexShrink: 0,
+              }}
+            />
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17, color: T.ink }}>The Landlord</span>
-                <span style={{ fontFamily: "'Instrument Sans'", fontWeight: 400, fontSize: 16, color: T.green }}>Property AI</span>
+                <span style={{ fontFamily: "'Instrument Sans'", fontWeight: 400, fontSize: 16, color: T.green }}>Property</span>
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: T.gold }}></span>
               </div>
               <div style={{ fontSize: 9.5, color: T.sub, letterSpacing: 1.2, fontWeight: 700, textTransform: "uppercase", marginTop: 1 }}>
@@ -1473,7 +3224,7 @@ export default function App() {
                 display: "inline-block",
                 animation: "pulsedot 1.8s infinite ease-in-out"
               }}></span>
-              Live SQL Connect
+              Live data
             </div>
           )}
 
@@ -1488,16 +3239,18 @@ export default function App() {
             boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
           }}>
             {[
-              ["deals", "⚡ Distress Deals"],
-              ["marketplace", "🏪 Marketplace"],
-              ["shortlet", "🏡 Shortlet Manager"],
-              ["profile", "👤 Profile"],
-              ...(user ? [["admin", "⚙️ Admin"]] : []),
-            ].map(([k, label]) => {
+              ["deals", "⚡", "Distress Deals"],
+              ["listings", "🏘️", "Listings", dealsList.filter(d => !d.status || d.status === "Published").length],
+              ["marketplace", "🏪", "Marketplace"],
+              ["shortlet", "🏡", "Shortlet Manager"],
+              ["profile", "👤", "Profile"],
+              ...(user ? [["admin", "⚙️", "Admin"]] : []),
+            ].map(([k, icon, text, badge]) => {
               const active = tab === k;
               return (
                 <button
                   key={k}
+                  className="nav-btn"
                   onClick={() => setTab(k)}
                   style={{
                     border: "none",
@@ -1507,13 +3260,29 @@ export default function App() {
                     fontWeight: active ? 700 : 600,
                     cursor: "pointer",
                     background: active
-                      ? (k === "deals" ? T.green : k === "marketplace" ? T.green : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : T.ink)
+                      ? (k === "deals" ? T.green : k === "listings" ? T.greenDark : k === "marketplace" ? T.green : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : T.ink)
                       : "transparent",
                     color: active ? "#fff" : T.sub,
                     transition: "all .2s ease",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    position: "relative",
                   }}
                 >
-                  {label}
+                  <span>{icon}</span>
+                  <span className="nav-label-text" style={{ marginLeft: 4 }}>{text}</span>
+                  {badge > 0 && (
+                    <span style={{
+                      marginLeft: 5,
+                      background: active ? "rgba(255,255,255,.25)" : T.mint,
+                      color: active ? "#fff" : T.green,
+                      borderRadius: 99,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      padding: "1px 6px",
+                      lineHeight: 1.6,
+                    }}>{badge}</span>
+                  )}
                 </button>
               );
             })}
@@ -1551,6 +3320,7 @@ export default function App() {
           {/* ── Auth / User Control ── */}
           {user ? (
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <NotificationBell user={user} />
               <div
                 title={user.displayName || user.email}
                 style={{
@@ -1622,10 +3392,85 @@ export default function App() {
 
       {/* body */}
       <main style={{ maxWidth: 1120, margin: "0 auto", padding: "18px 18px 90px" }}>
+
+        {/* ── FCM Push Notification Banner ── */}
+        {user && pushPermission === 'default' && !pushBannerDismissed && (
+          <div style={{
+            background: `linear-gradient(135deg, ${T.ink}, #0A3420)`,
+            color: "#fff",
+            borderRadius: 14,
+            padding: "14px 18px",
+            marginBottom: 16,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            flexWrap: "wrap",
+            animation: "slideup .3s ease",
+          }}>
+            <span style={{ fontSize: 22 }}>🔔</span>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>Enable push notifications</div>
+              <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 2 }}>Get instant alerts when matching deals are found, or when your bids advance.</div>
+            </div>
+            <button
+              onClick={async () => {
+                const token = await requestNotificationPermission(user.uid);
+                if (token) {
+                  setPushPermission('granted');
+                  setToast('Push notifications enabled! ✓');
+                  setTimeout(() => setToast(null), 3500);
+                } else {
+                  setPushPermission(Notification.permission);
+                }
+                setPushBannerDismissed(true);
+              }}
+              style={{
+                background: T.gold, color: T.ink, border: "none", borderRadius: 10,
+                padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              ✓ Enable
+            </button>
+            <button
+              onClick={() => setPushBannerDismissed(true)}
+              style={{ background: "rgba(255,255,255,.12)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 12px", cursor: "pointer", fontSize: 13 }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* ── FCM Foreground notification toast ── */}
+        {fcmForegroundNotif && (
+          <div style={{
+            position: "fixed", top: 80, right: 18, zIndex: 200,
+            background: T.ink, color: "#fff", borderRadius: 14,
+            padding: "14px 18px", maxWidth: 320,
+            boxShadow: "0 12px 30px rgba(12,43,31,.35)",
+            animation: "slideup .3s ease",
+            display: "flex", alignItems: "flex-start", gap: 12,
+          }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>🔔</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5 }}>{fcmForegroundNotif.title}</div>
+              {fcmForegroundNotif.body && <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3 }}>{fcmForegroundNotif.body}</div>}
+            </div>
+            <button onClick={() => setFcmForegroundNotif(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,.5)", cursor: "pointer", padding: 0, fontSize: 14 }}>✕</button>
+          </div>
+        )}
+
         {tab === "deals" ? (
-          <DealsView cur={cur} onOpen={setModal} query={query} setQuery={setQuery} dealsList={usingEmulator ? dbProperties : dealsList} onAiSearch={handleAiSearch} aiResults={aiResults} aiSearching={aiSearching} usingEmulator={usingEmulator} />
+          <DealsView cur={cur} onOpen={setModal} query={query} setQuery={setQuery} dealsList={usingEmulator ? dbProperties : dealsList} onAiSearch={handleAiSearch} aiResults={aiResults} aiSearching={aiSearching} usingEmulator={usingEmulator} savedIds={savedIds} onToggleSave={toggleSave} compareIds={compareIds} onToggleCompare={toggleCompare} />
+        ) : tab === "listings" ? (
+          <Listings
+            dealsList={usingEmulator ? dbProperties : dealsList}
+            cur={cur}
+            onOpen={setModal}
+            user={user}
+          />
         ) : tab === "marketplace" ? (
-          <Marketplace cur={cur} onWhatsAppOpen={() => setWaOpen(true)} />
+          <Marketplace cur={cur} onWhatsAppOpen={() => setWaOpen(true)} usingEmulator={usingEmulator} dataConnect={dataConnect} user={user} onSignInRequest={() => setShowAuth(true)} distressDeals={usingEmulator ? dbProperties : dealsList.filter(d => d.status === "Published" || !d.status)} onOpenDeal={(deal) => setModal(deal)} />
         ) : tab === "profile" ? (
           <Profile
             user={user}
@@ -1634,6 +3479,9 @@ export default function App() {
             onListingsChange={setDealsList}
             dealsList={dealsList}
             onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 4000); }}
+            savedIds={savedIds}
+            onToggleSave={toggleSave}
+            onOpen={setModal}
             onRegisterDistressProperty={async (newProp) => {
               if (!usingEmulator) return;
               try {
@@ -1655,52 +3503,134 @@ export default function App() {
         )}
 
         {/* ── Diaspora Wealth Accelerator CTA Banner ── */}
-        <div style={{
-          marginTop: 56,
-          background: `linear-gradient(135deg, ${T.ink} 0%, #0A3420 60%, #0E3B4E 100%)`,
-          borderRadius: 22,
-          padding: "40px 32px",
-          position: "relative",
-          overflow: "hidden",
-          boxShadow: "0 12px 40px rgba(12,43,31,0.18)",
-        }}>
-          {/* Decorative circles */}
-          <div style={{ position: "absolute", right: -60, top: -60, width: 240, height: 240, borderRadius: "50%", background: `rgba(201,162,39,.07)` }} />
-          <div style={{ position: "absolute", left: "45%", bottom: -80, width: 200, height: 200, borderRadius: "50%", background: `rgba(14,107,117,.1)` }} />
-          <div style={{ position: "relative", zIndex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 12 }}>Diaspora Wealth Accelerator</div>
-            <div className="diaspora-heading" style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: "clamp(22px, 4vw, 36px)", lineHeight: 1.2, marginBottom: 14, maxWidth: 700 }}>
-              Live in London, Lagos, or Houston — <span style={{ color: T.gold }}>own in Abuja.</span>
-            </div>
-            <p style={{ fontSize: 14.5, color: "rgba(255,255,255,0.78)", maxWidth: 620, lineHeight: 1.65, marginBottom: 24 }}>
-              Every deal supports USD, GBP, and CAD payments through our partner-bank escrow. Your AI concierge handles everything on the ground — from AGIS title searches to WhatsApp-verified tenant check-ins — while your portfolio generates verified monthly income.
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <Btn kind="gold" onClick={() => setWaOpen(true)}>
-                💬 Talk to a deal concierge
-              </Btn>
-              <Btn kind="ghost" style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => setTab("deals")}>
-                Browse verified deals →
-              </Btn>
+        {tab === "deals" && (
+          <div style={{
+            marginTop: 56,
+            background: `linear-gradient(135deg, ${T.ink} 0%, #0A3420 60%, #0E3B4E 100%)`,
+            borderRadius: 22,
+            padding: "40px 32px",
+            position: "relative",
+            overflow: "hidden",
+            boxShadow: "0 12px 40px rgba(12,43,31,0.18)",
+          }}>
+            {/* Decorative circles */}
+            <div style={{ position: "absolute", right: -60, top: -60, width: 240, height: 240, borderRadius: "50%", background: `rgba(201,162,39,.07)` }} />
+            <div style={{ position: "absolute", left: "45%", bottom: -80, width: 200, height: 200, borderRadius: "50%", background: `rgba(14,107,117,.1)` }} />
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 12 }}>Diaspora Wealth Accelerator</div>
+              <div className="diaspora-heading" style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: "clamp(22px, 4vw, 36px)", lineHeight: 1.2, marginBottom: 14, maxWidth: 700 }}>
+                Live in London, Lagos, or Houston — <span style={{ color: T.gold }}>own in Abuja.</span>
+              </div>
+              <p style={{ fontSize: 14.5, color: "rgba(255,255,255,0.78)", maxWidth: 620, lineHeight: 1.65, marginBottom: 24 }}>
+                Every deal supports USD, GBP, and CAD payments through our partner-bank escrow. Your AI concierge handles everything on the ground — from AGIS title searches to WhatsApp-verified tenant check-ins — while your portfolio generates verified monthly income.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                <Btn kind="gold" onClick={() => setWaOpen(true)}>
+                  💬 Talk to a deal concierge
+                </Btn>
+                <Btn kind="ghost" style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => setTab("deals")}>
+                  Browse verified deals →
+                </Btn>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </main>
 
       {/* Premium content-rich footer */}
       <footer style={{ background: T.ink, color: "#fff", padding: "64px 24px 40px", borderTop: `1px solid ${T.line}` }}>
-        <div style={{ maxWidth: 1120, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 40 }}>
+        <div className="footer-grid" style={{ maxWidth: 1120, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 40 }}>
           {/* Column 1: Brand & About */}
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 18 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: T.green, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 16 }}>
-                L
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <img
+                src="/logo_mark.png"
+                alt="The Landlord Property"
+                style={{
+                  height: 40,
+                  width: "auto",
+                  objectFit: "contain",
+                  flexShrink: 0,
+                }}
+              />
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: "#fff" }}>The Landlord</span>
+                  <span style={{ fontFamily: "'Instrument Sans'", fontWeight: 400, fontSize: 17, color: "#4ade80" }}>Property</span>
+                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: T.gold }}></span>
+                </div>
+                <div style={{ fontSize: 9.5, color: "rgba(255,255,255,0.6)", letterSpacing: 1.2, fontWeight: 700, textTransform: "uppercase", marginTop: 1 }}>
+                  Verification &amp; Escrow Gateway
+                </div>
               </div>
-              <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, letterSpacing: -0.2 }}>The Landlord Property AI</span>
             </div>
             <p style={{ fontSize: 13.5, opacity: 0.75, lineHeight: 1.6, margin: "0 0 20px 0" }}>
               Abuja's premier AI-powered distress deal marketplace and automated shortlet management platform. We bridge properties directly to verification pipelines.
             </p>
+            {/* Social Media Buttons */}
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              {[
+                { name: "Twitter", href: "https://twitter.com/thelandlordai", icon: (
+                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.6.75Zm-.86 13.028h1.36L4.323 2.145H2.865l8.875 11.633Z"/>
+                  </svg>
+                )},
+                { name: "LinkedIn", href: "https://linkedin.com/company/thelandlordai", icon: (
+                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M0 1.146C0 .513.526 0 1.175 0h13.65C15.474 0 16 .513 16 1.146v13.708c0 .633-.526 1.146-1.175 1.146H1.175C.526 16 0 15.487 0 14.854V1.146zm4.943 12.248V6.169H2.542v7.225h2.401zm-1.2-8.212c.837 0 1.358-.554 1.358-1.248-.015-.709-.52-1.248-1.342-1.248-.822 0-1.359.54-1.359 1.248 0 .694.521 1.248 1.327 1.248h.016zm4.908 8.212V9.359c0-.216.016-.432.08-.586.173-.431.568-.878 1.232-.878.869 0 1.216.662 1.216 1.634v3.865h2.401V9.25c0-2.22-1.184-3.252-2.764-3.252-1.274 0-1.845.7-2.165 1.193v.025h-.016a5.54 5.54 0 0 1 .016-.025V6.169h-2.4c.03.678 0 7.225 0 7.225h2.4z"/>
+                  </svg>
+                )},
+                { name: "Instagram", href: "https://instagram.com/thelandlordai", icon: (
+                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M8 0C5.829 0 5.556.01 4.703.048 3.85.088 3.269.222 2.76.42a3.917 3.917 0 0 0-1.417.923A3.927 3.927 0 0 0 .42 2.76C.222 3.268.087 3.85.048 4.7.01 5.555 0 5.827 0 8.001c0 2.172.01 2.444.048 3.297.04 1.804.57 3.205 1.76 4.395 1.19 1.19 2.586 1.72 4.394 1.76 1.803.03 2.078.04 4.298.04 2.172 0 2.444-.01 3.298-.048 1.804-.04 3.205-.57 4.395-1.76 1.19-1.19 1.72-2.586 1.76-4.394.03-1.803.04-2.078.04-4.298 0-2.172-.01-2.444-.048-3.298c-.04-1.804-.57-3.205-1.76-4.395C14.004 1.72 12.607 1.2 10.8 1.049 8.996 1.01 8.72 8 8 8zm0 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0 4.5A4.5 4.5 0 1 0 8 3.5a4.5 4.5 0 0 0 0 9z"/>
+                  </svg>
+                )},
+                { name: "Facebook", href: "https://facebook.com/thelandlordai", icon: (
+                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M16 8.049c0-4.446-3.582-8.05-8-8.05C3.58 0-.002 3.603-.002 8.05c0 4.017 2.926 7.347 6.75 7.951v-5.625h-2.03V8.05H6.75V6.275c0-2.017 1.195-3.131 3.022-3.131.876 0 1.791.157 1.791.157v1.98h-1.009c-.993 0-1.303.621-1.303 1.258v1.51h2.218l-.354 2.326H9.25V16c3.824-.604 6.75-3.934 6.75-7.951z"/>
+                  </svg>
+                )}
+              ].map((s) => (
+                <a
+                  key={s.name}
+                  href={s.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Follow us on ${s.name}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 36,
+                    height: 36,
+                    borderRadius: "50%",
+                    background: "rgba(255, 255, 255, 0.08)",
+                    color: "rgba(255, 255, 255, 0.8)",
+                    textDecoration: "none",
+                    transition: "all 0.2s ease-in-out",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    translate: "0px 0px",
+                    scale: "1",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = T.green;
+                    e.currentTarget.style.color = "#fff";
+                    e.currentTarget.style.translate = "0 -2px";
+                    e.currentTarget.style.borderColor = T.green;
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(14, 90, 58, 0.3)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)";
+                    e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)";
+                    e.currentTarget.style.translate = "0px 0px";
+                    e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.1)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  {s.icon}
+                </a>
+              ))}
+            </div>
           </div>
 
           {/* Column 2: Vision & Mission */}
@@ -1738,7 +3668,7 @@ export default function App() {
 
         {/* Bottom Bar */}
         <div style={{ maxWidth: 1120, margin: "50px auto 0", paddingTop: "24px", borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 20, fontSize: 12, opacity: 0.6 }}>
-          <div>© {new Date().getFullYear()} The Landlord Property AI. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} The Landlord Property. All rights reserved.</div>
           <div style={{ maxWidth: 620, lineHeight: 1.4 }}>
             Disclaimer: AI verification scores and predictions are tools for decision support. They do not constitute legal advice. Always execute final transactions through legal counsel.
           </div>
@@ -1774,7 +3704,8 @@ export default function App() {
           onSuccess={(u) => { setUser(u); setShowAuth(false); }}
         />
       )}
-      <DealModal deal={modal} cur={cur} onClose={() => setModal(null)} onBuyAndOnboard={buyAndOnboard} />
+      <CompareBar compareIds={compareIds} dealsList={dealsList} onRemove={(id) => setCompareIds(prev => prev.filter(x => x !== id))} onOpen={setModal} onClear={() => setCompareIds([])} cur={cur} />
+      <DealModal deal={modal} cur={cur} onClose={() => setModal(null)} onBuyAndOnboard={buyAndOnboard} user={user} onSignInRequest={() => setShowAuth(true)} savedIds={savedIds} onToggleSave={toggleSave} onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); }} />
       <WhatsAppPanel open={waOpen} setOpen={setWaOpen} />
     </div>
   );

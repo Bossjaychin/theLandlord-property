@@ -7,16 +7,20 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "emulators": "npx -y firebase-tools@latest emulators:start --only dataconnect,auth,firestore,functions"
   },
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
     "@genkit-ai/google-genai": "^1.39.0",
     "@genkit-ai/googleai": "^1.28.0",
     "dotenv": "^17.4.2",
     "firebase": "^12.15.0",
     "genkit": "^1.39.0",
+    "leaflet": "^1.9.4",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

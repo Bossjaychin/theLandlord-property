@@ -274,6 +274,14 @@ input Property_Data {
   """
   id_expr: UUID_Expr @fdc_forbiddenInVariables
   """
+  ✨ Generated from Field `Property`.`agent` of type `String`
+  """
+  agent: String
+  """
+  ✨ `_expr` server value variant of `agent` (✨ Generated from Field `Property`.`agent` of type `String`)
+  """
+  agent_expr: String_Expr @fdc_forbiddenInVariables
+  """
   ✨ Generated from Field `Property`.`agisVerified` of type `Boolean`
   """
   agisVerified: Boolean
@@ -294,6 +302,14 @@ input Property_Data {
   """
   askingPrice_update: [Float_Update!] @fdc_forbiddenInVariables
   """
+  ✨ Generated from Field `Property`.`description` of type `String`
+  """
+  description: String
+  """
+  ✨ `_expr` server value variant of `description` (✨ Generated from Field `Property`.`description` of type `String`)
+  """
+  description_expr: String_Expr @fdc_forbiddenInVariables
+  """
   ✨ Generated from Field `Property`.`descriptionEmbedding` of type `Vector`
   """
   descriptionEmbedding: Vector
@@ -310,6 +326,14 @@ input Property_Data {
   """
   district_expr: String_Expr @fdc_forbiddenInVariables
   """
+  ✨ Generated from Field `Property`.`features` of type `[String!]`
+  """
+  features: [String!]
+  """
+  ✨ `_update` server value variant of `features` (✨ Generated from Field `Property`.`features` of type `[String!]`)
+  """
+  features_update: [String_ListUpdate!] @fdc_forbiddenInVariables
+  """
   ✨ Generated from Field `Property`.`isDistressSale` of type `Boolean`
   """
   isDistressSale: Boolean
@@ -317,6 +341,14 @@ input Property_Data {
   ✨ `_expr` server value variant of `isDistressSale` (✨ Generated from Field `Property`.`isDistressSale` of type `Boolean`)
   """
   isDistressSale_expr: Boolean_Expr @fdc_forbiddenInVariables
+  """
+  ✨ Generated from Field `Property`.`isMarketplaceListing` of type `Boolean`
+  """
+  isMarketplaceListing: Boolean
+  """
+  ✨ `_expr` server value variant of `isMarketplaceListing` (✨ Generated from Field `Property`.`isMarketplaceListing` of type `Boolean`)
+  """
+  isMarketplaceListing_expr: Boolean_Expr @fdc_forbiddenInVariables
   """
   ✨ Generated from Field `Property`.`nightlyRate` of type `Float!`
   """
@@ -330,6 +362,58 @@ input Property_Data {
   """
   nightlyRate_update: [Float_Update!] @fdc_forbiddenInVariables
   """
+  ✨ Generated from Field `Property`.`photos` of type `Int`
+  """
+  photos: Int
+  """
+  ✨ `_expr` server value variant of `photos` (✨ Generated from Field `Property`.`photos` of type `Int`)
+  """
+  photos_expr: Int_Expr @fdc_forbiddenInVariables
+  """
+  ✨ `_update` server value variant of `photos` (✨ Generated from Field `Property`.`photos` of type `Int`)
+  """
+  photos_update: [Int_Update!] @fdc_forbiddenInVariables
+  """
+  ✨ Generated from Field `Property`.`plots` of type `Int`
+  """
+  plots: Int
+  """
+  ✨ `_expr` server value variant of `plots` (✨ Generated from Field `Property`.`plots` of type `Int`)
+  """
+  plots_expr: Int_Expr @fdc_forbiddenInVariables
+  """
+  ✨ `_update` server value variant of `plots` (✨ Generated from Field `Property`.`plots` of type `Int`)
+  """
+  plots_update: [Int_Update!] @fdc_forbiddenInVariables
+  """
+  ✨ Generated from Field `Property`.`purpose` of type `[String!]`
+  """
+  purpose: [String!]
+  """
+  ✨ `_update` server value variant of `purpose` (✨ Generated from Field `Property`.`purpose` of type `[String!]`)
+  """
+  purpose_update: [String_ListUpdate!] @fdc_forbiddenInVariables
+  """
+  ✨ Generated from Field `Property`.`size` of type `String`
+  """
+  size: String
+  """
+  ✨ `_expr` server value variant of `size` (✨ Generated from Field `Property`.`size` of type `String`)
+  """
+  size_expr: String_Expr @fdc_forbiddenInVariables
+  """
+  ✨ Generated from Field `Property`.`sqm` of type `Int`
+  """
+  sqm: Int
+  """
+  ✨ `_expr` server value variant of `sqm` (✨ Generated from Field `Property`.`sqm` of type `Int`)
+  """
+  sqm_expr: Int_Expr @fdc_forbiddenInVariables
+  """
+  ✨ `_update` server value variant of `sqm` (✨ Generated from Field `Property`.`sqm` of type `Int`)
+  """
+  sqm_update: [Int_Update!] @fdc_forbiddenInVariables
+  """
   ✨ Generated from Field `Property`.`title` of type `String!`
   """
   title: String
@@ -337,6 +421,22 @@ input Property_Data {
   ✨ `_expr` server value variant of `title` (✨ Generated from Field `Property`.`title` of type `String!`)
   """
   title_expr: String_Expr @fdc_forbiddenInVariables
+  """
+  ✨ Generated from Field `Property`.`titleDoc` of type `String`
+  """
+  titleDoc: String
+  """
+  ✨ `_expr` server value variant of `titleDoc` (✨ Generated from Field `Property`.`titleDoc` of type `String`)
+  """
+  titleDoc_expr: String_Expr @fdc_forbiddenInVariables
+  """
+  ✨ Generated from Field `Property`.`type` of type `String`
+  """
+  type: String
+  """
+  ✨ `_expr` server value variant of `type` (✨ Generated from Field `Property`.`type` of type `String`)
+  """
+  type_expr: String_Expr @fdc_forbiddenInVariables
   """
   ✨ Generated from Field `Property`.`bookings_on_property` of type `[Booking!]!`
   """
@@ -363,6 +463,10 @@ input Property_Filter {
   """
   id: UUID_Filter
   """
+  ✨ Generated from Field `Property`.`agent` of type `String`
+  """
+  agent: String_Filter
+  """
   ✨ Generated from Field `Property`.`agisVerified` of type `Boolean`
   """
   agisVerified: Boolean_Filter
@@ -370,6 +474,10 @@ input Property_Filter {
   ✨ Generated from Field `Property`.`askingPrice` of type `Float`
   """
   askingPrice: Float_Filter
+  """
+  ✨ Generated from Field `Property`.`description` of type `String`
+  """
+  description: String_Filter
   """
   ✨ Generated from Field `Property`.`descriptionEmbedding` of type `Vector`
   """
@@ -379,17 +487,53 @@ input Property_Filter {
   """
   district: String_Filter
   """
+  ✨ Generated from Field `Property`.`features` of type `[String!]`
+  """
+  features: String_ListFilter
+  """
   ✨ Generated from Field `Property`.`isDistressSale` of type `Boolean`
   """
   isDistressSale: Boolean_Filter
+  """
+  ✨ Generated from Field `Property`.`isMarketplaceListing` of type `Boolean`
+  """
+  isMarketplaceListing: Boolean_Filter
   """
   ✨ Generated from Field `Property`.`nightlyRate` of type `Float!`
   """
   nightlyRate: Float_Filter
   """
+  ✨ Generated from Field `Property`.`photos` of type `Int`
+  """
+  photos: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`plots` of type `Int`
+  """
+  plots: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`purpose` of type `[String!]`
+  """
+  purpose: String_ListFilter
+  """
+  ✨ Generated from Field `Property`.`size` of type `String`
+  """
+  size: String_Filter
+  """
+  ✨ Generated from Field `Property`.`sqm` of type `Int`
+  """
+  sqm: Int_Filter
+  """
   ✨ Generated from Field `Property`.`title` of type `String!`
   """
   title: String_Filter
+  """
+  ✨ Generated from Field `Property`.`titleDoc` of type `String`
+  """
+  titleDoc: String_Filter
+  """
+  ✨ Generated from Field `Property`.`type` of type `String`
+  """
+  type: String_Filter
   """
   ✨ Generated from Field `Property`.`bookings_on_property` of type `[Booking!]!`
   """
@@ -433,6 +577,10 @@ input Property_Having {
   """
   _count: Int_Filter
   """
+  ✨ Generated from Field `Property`.`agent_count` of type `Int!`
+  """
+  agent_count: Int_Filter
+  """
   ✨ Generated from Field `Property`.`agisVerified_count` of type `Int!`
   """
   agisVerified_count: Int_Filter
@@ -444,6 +592,10 @@ input Property_Having {
   ✨ Generated from Field `Property`.`descriptionEmbedding_count` of type `Int!`
   """
   descriptionEmbedding_count: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`description_count` of type `Int!`
+  """
+  description_count: Int_Filter
   """
   ✨ Generated from Field `Property`.`district_count` of type `Int!`
   """
@@ -457,13 +609,41 @@ input Property_Having {
   """
   isDistressSale_count: Int_Filter
   """
+  ✨ Generated from Field `Property`.`isMarketplaceListing_count` of type `Int!`
+  """
+  isMarketplaceListing_count: Int_Filter
+  """
   ✨ Generated from Field `Property`.`nightlyRate_count` of type `Int!`
   """
   nightlyRate_count: Int_Filter
   """
+  ✨ Generated from Field `Property`.`photos_count` of type `Int!`
+  """
+  photos_count: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`plots_count` of type `Int!`
+  """
+  plots_count: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`size_count` of type `Int!`
+  """
+  size_count: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`sqm_count` of type `Int!`
+  """
+  sqm_count: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`titleDoc_count` of type `Int!`
+  """
+  titleDoc_count: Int_Filter
+  """
   ✨ Generated from Field `Property`.`title_count` of type `Int!`
   """
   title_count: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`type_count` of type `Int!`
+  """
+  type_count: Int_Filter
   """
   ✨ Generated from Field `Property`.`askingPrice_sum` of type `Float`
   """
@@ -473,6 +653,18 @@ input Property_Having {
   """
   nightlyRate_sum: Float_Filter
   """
+  ✨ Generated from Field `Property`.`photos_sum` of type `Int`
+  """
+  photos_sum: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`plots_sum` of type `Int`
+  """
+  plots_sum: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`sqm_sum` of type `Int`
+  """
+  sqm_sum: Int_Filter
+  """
   ✨ Generated from Field `Property`.`askingPrice_avg` of type `Float`
   """
   askingPrice_avg: Float_Filter
@@ -480,6 +672,18 @@ input Property_Having {
   ✨ Generated from Field `Property`.`nightlyRate_avg` of type `Float`
   """
   nightlyRate_avg: Float_Filter
+  """
+  ✨ Generated from Field `Property`.`photos_avg` of type `Float`
+  """
+  photos_avg: Float_Filter
+  """
+  ✨ Generated from Field `Property`.`plots_avg` of type `Float`
+  """
+  plots_avg: Float_Filter
+  """
+  ✨ Generated from Field `Property`.`sqm_avg` of type `Float`
+  """
+  sqm_avg: Float_Filter
   """
   ✨ Generated from Field `Property`.`askingPrice_min` of type `Float`
   """
@@ -489,6 +693,18 @@ input Property_Having {
   """
   nightlyRate_min: Float_Filter
   """
+  ✨ Generated from Field `Property`.`photos_min` of type `Int`
+  """
+  photos_min: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`plots_min` of type `Int`
+  """
+  plots_min: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`sqm_min` of type `Int`
+  """
+  sqm_min: Int_Filter
+  """
   ✨ Generated from Field `Property`.`askingPrice_max` of type `Float`
   """
   askingPrice_max: Float_Filter
@@ -496,6 +712,18 @@ input Property_Having {
   ✨ Generated from Field `Property`.`nightlyRate_max` of type `Float`
   """
   nightlyRate_max: Float_Filter
+  """
+  ✨ Generated from Field `Property`.`photos_max` of type `Int`
+  """
+  photos_max: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`plots_max` of type `Int`
+  """
+  plots_max: Int_Filter
+  """
+  ✨ Generated from Field `Property`.`sqm_max` of type `Int`
+  """
+  sqm_max: Int_Filter
 }
 """
 ✨ Generated key input type for table 'Property'. It represents the primary key fields used to uniquely identify a row in the table.
@@ -532,6 +760,10 @@ input Property_Order {
   """
   id: OrderDirection
   """
+  ✨ Generated from Field `Property`.`agent` of type `String`
+  """
+  agent: OrderDirection
+  """
   ✨ Generated from Field `Property`.`agisVerified` of type `Boolean`
   """
   agisVerified: OrderDirection
@@ -539,6 +771,10 @@ input Property_Order {
   ✨ Generated from Field `Property`.`askingPrice` of type `Float`
   """
   askingPrice: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`description` of type `String`
+  """
+  description: OrderDirection
   """
   ✨ Generated from Field `Property`.`descriptionEmbedding` of type `Vector`
   """
@@ -552,17 +788,49 @@ input Property_Order {
   """
   isDistressSale: OrderDirection
   """
+  ✨ Generated from Field `Property`.`isMarketplaceListing` of type `Boolean`
+  """
+  isMarketplaceListing: OrderDirection
+  """
   ✨ Generated from Field `Property`.`nightlyRate` of type `Float!`
   """
   nightlyRate: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`photos` of type `Int`
+  """
+  photos: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`plots` of type `Int`
+  """
+  plots: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`size` of type `String`
+  """
+  size: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`sqm` of type `Int`
+  """
+  sqm: OrderDirection
   """
   ✨ Generated from Field `Property`.`title` of type `String!`
   """
   title: OrderDirection
   """
+  ✨ Generated from Field `Property`.`titleDoc` of type `String`
+  """
+  titleDoc: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`type` of type `String`
+  """
+  type: OrderDirection
+  """
   ✨ Generated from Field `Property`.`_count` of type `Int!`
   """
   _count: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`agent_count` of type `Int!`
+  """
+  agent_count: OrderDirection
   """
   ✨ Generated from Field `Property`.`agisVerified_count` of type `Int!`
   """
@@ -576,6 +844,10 @@ input Property_Order {
   """
   descriptionEmbedding_count: OrderDirection
   """
+  ✨ Generated from Field `Property`.`description_count` of type `Int!`
+  """
+  description_count: OrderDirection
+  """
   ✨ Generated from Field `Property`.`district_count` of type `Int!`
   """
   district_count: OrderDirection
@@ -588,13 +860,41 @@ input Property_Order {
   """
   isDistressSale_count: OrderDirection
   """
+  ✨ Generated from Field `Property`.`isMarketplaceListing_count` of type `Int!`
+  """
+  isMarketplaceListing_count: OrderDirection
+  """
   ✨ Generated from Field `Property`.`nightlyRate_count` of type `Int!`
   """
   nightlyRate_count: OrderDirection
   """
+  ✨ Generated from Field `Property`.`photos_count` of type `Int!`
+  """
+  photos_count: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`plots_count` of type `Int!`
+  """
+  plots_count: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`size_count` of type `Int!`
+  """
+  size_count: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`sqm_count` of type `Int!`
+  """
+  sqm_count: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`titleDoc_count` of type `Int!`
+  """
+  titleDoc_count: OrderDirection
+  """
   ✨ Generated from Field `Property`.`title_count` of type `Int!`
   """
   title_count: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`type_count` of type `Int!`
+  """
+  type_count: OrderDirection
   """
   ✨ Generated from Field `Property`.`askingPrice_sum` of type `Float`
   """
@@ -604,6 +904,18 @@ input Property_Order {
   """
   nightlyRate_sum: OrderDirection
   """
+  ✨ Generated from Field `Property`.`photos_sum` of type `Int`
+  """
+  photos_sum: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`plots_sum` of type `Int`
+  """
+  plots_sum: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`sqm_sum` of type `Int`
+  """
+  sqm_sum: OrderDirection
+  """
   ✨ Generated from Field `Property`.`askingPrice_avg` of type `Float`
   """
   askingPrice_avg: OrderDirection
@@ -611,6 +923,18 @@ input Property_Order {
   ✨ Generated from Field `Property`.`nightlyRate_avg` of type `Float`
   """
   nightlyRate_avg: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`photos_avg` of type `Float`
+  """
+  photos_avg: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`plots_avg` of type `Float`
+  """
+  plots_avg: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`sqm_avg` of type `Float`
+  """
+  sqm_avg: OrderDirection
   """
   ✨ Generated from Field `Property`.`askingPrice_min` of type `Float`
   """
@@ -620,6 +944,18 @@ input Property_Order {
   """
   nightlyRate_min: OrderDirection
   """
+  ✨ Generated from Field `Property`.`photos_min` of type `Int`
+  """
+  photos_min: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`plots_min` of type `Int`
+  """
+  plots_min: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`sqm_min` of type `Int`
+  """
+  sqm_min: OrderDirection
+  """
   ✨ Generated from Field `Property`.`askingPrice_max` of type `Float`
   """
   askingPrice_max: OrderDirection
@@ -627,4 +963,16 @@ input Property_Order {
   ✨ Generated from Field `Property`.`nightlyRate_max` of type `Float`
   """
   nightlyRate_max: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`photos_max` of type `Int`
+  """
+  photos_max: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`plots_max` of type `Int`
+  """
+  plots_max: OrderDirection
+  """
+  ✨ Generated from Field `Property`.`sqm_max` of type `Int`
+  """
+  sqm_max: OrderDirection
 }

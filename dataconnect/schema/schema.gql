@@ -7,6 +7,19 @@ type Property @table(plural: "properties") {
   agisVerified: Boolean
   askingPrice: Float
   descriptionEmbedding: Vector @col(size: 768)
+
+  # Marketplace additions
+  type: String
+  titleDoc: String
+  size: String
+  sqm: Int
+  plots: Int
+  purpose: [String!]
+  features: [String!]
+  agent: String
+  photos: Int
+  description: String
+  isMarketplaceListing: Boolean
 }
 
 type Booking @table(plural: "bookings") {

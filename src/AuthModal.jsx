@@ -133,6 +133,7 @@ export default function AuthModal({ onClose, onSuccess }) {
       >
         {/* Card */}
         <div
+          className="auth-modal-inner"
           onClick={e => e.stopPropagation()}
           style={{
             position: "relative",
@@ -159,20 +160,24 @@ export default function AuthModal({ onClose, onSuccess }) {
 
           {/* ── Brand ── */}
           <div style={{ textAlign: "center", marginBottom: 26 }}>
-            <div style={{
-              width: 52, height: 52, borderRadius: 16,
-              background: T.green, color: "#fff",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 24,
-              marginBottom: 16,
-              boxShadow: "0 4px 14px rgba(14,90,58,.35)",
-            }}>L</div>
+            <img
+              src="/logo_mark.png"
+              alt="The Landlord Property"
+              style={{
+                height: 64,
+                width: "auto",
+                objectFit: "contain",
+                marginBottom: 16,
+                display: "block",
+                margin: "0 auto 16px",
+              }}
+            />
 
             <div style={{
               fontFamily: "'Bricolage Grotesque', sans-serif",
               fontWeight: 800, fontSize: 21, color: T.ink, lineHeight: 1.2,
             }}>
-              {mode === "signup" ? "Create your account" : "Sign in to The Landlord AI"}
+              {mode === "signup" ? "Create your account" : "Sign in to The Landlord Property"}
             </div>
             <div style={{ fontSize: 13.5, color: T.sub, marginTop: 7, lineHeight: 1.5 }}>
               {mode === "signup"

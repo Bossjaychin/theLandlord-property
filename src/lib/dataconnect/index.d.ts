@@ -37,6 +37,27 @@ export interface CreateDistressPropertyVariables {
   description: string;
 }
 
+export interface CreateMarketplacePropertyData {
+  property_insert: Property_Key;
+}
+
+export interface CreateMarketplacePropertyVariables {
+  title: string;
+  type: string;
+  district: string;
+  price: number;
+  titleDoc: string;
+  verified: boolean;
+  size: string;
+  sqm: number;
+  plots?: number | null;
+  purpose: string[];
+  features: string[];
+  agent: string;
+  photos: number;
+  description: string;
+}
+
 export interface CreatePropertyData {
   property_insert: Property_Key;
 }
@@ -89,6 +110,28 @@ export interface ListAllPropertiesData {
 export interface ListAllPropertiesVariables {
   checkIn: DateString;
   checkOut: DateString;
+}
+
+export interface ListMarketplacePropertiesData {
+  properties: ({
+    id: UUIDString;
+    title: string;
+    nightlyRate: number;
+    district: string;
+    isDistressSale?: boolean | null;
+    agisVerified?: boolean | null;
+    askingPrice?: number | null;
+    type?: string | null;
+    titleDoc?: string | null;
+    size?: string | null;
+    sqm?: number | null;
+    plots?: number | null;
+    purpose?: string[] | null;
+    features?: string[] | null;
+    agent?: string | null;
+    photos?: number | null;
+    description?: string | null;
+  } & Property_Key)[];
 }
 
 export interface Property_Key {
@@ -145,6 +188,18 @@ export const createBookingRef: CreateBookingRef;
 export function createBooking(vars: CreateBookingVariables): MutationPromise<CreateBookingData, CreateBookingVariables>;
 export function createBooking(dc: DataConnect, vars: CreateBookingVariables): MutationPromise<CreateBookingData, CreateBookingVariables>;
 
+interface CreateMarketplacePropertyRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: CreateMarketplacePropertyVariables): MutationRef<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect, vars: CreateMarketplacePropertyVariables): MutationRef<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+  operationName: string;
+}
+export const createMarketplacePropertyRef: CreateMarketplacePropertyRef;
+
+export function createMarketplaceProperty(vars: CreateMarketplacePropertyVariables): MutationPromise<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+export function createMarketplaceProperty(dc: DataConnect, vars: CreateMarketplacePropertyVariables): MutationPromise<CreateMarketplacePropertyData, CreateMarketplacePropertyVariables>;
+
 interface FetchDistrictAvailabilityRef {
   /* Allow users to create refs without passing in DataConnect */
   (vars: FetchDistrictAvailabilityVariables): QueryRef<FetchDistrictAvailabilityData, FetchDistrictAvailabilityVariables>;
@@ -180,4 +235,16 @@ export const listAllPropertiesRef: ListAllPropertiesRef;
 
 export function listAllProperties(vars: ListAllPropertiesVariables, options?: ExecuteQueryOptions): QueryPromise<ListAllPropertiesData, ListAllPropertiesVariables>;
 export function listAllProperties(dc: DataConnect, vars: ListAllPropertiesVariables, options?: ExecuteQueryOptions): QueryPromise<ListAllPropertiesData, ListAllPropertiesVariables>;
+
+interface ListMarketplacePropertiesRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (): QueryRef<ListMarketplacePropertiesData, undefined>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect): QueryRef<ListMarketplacePropertiesData, undefined>;
+  operationName: string;
+}
+export const listMarketplacePropertiesRef: ListMarketplacePropertiesRef;
+
+export function listMarketplaceProperties(options?: ExecuteQueryOptions): QueryPromise<ListMarketplacePropertiesData, undefined>;
+export function listMarketplaceProperties(dc: DataConnect, options?: ExecuteQueryOptions): QueryPromise<ListMarketplacePropertiesData, undefined>;
 

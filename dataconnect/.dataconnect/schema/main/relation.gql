@@ -108,6 +108,15 @@ extend type Property {
   """
   _count: Int! @fdc_generated(from: "Property.", purpose: QUERY_COUNT)
   """
+  ✨ Count the number of rows in the `Property` table where the `agent` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  agent_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.agent", purpose: QUERY_COUNT)
+  """
   ✨ Count the number of rows in the `Property` table where the `agisVerified` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
   """
   agisVerified_count(
@@ -134,6 +143,15 @@ extend type Property {
     """
     distinct: Boolean = false
   ): Int! @fdc_generated(from: "Property.descriptionEmbedding", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `description` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  description_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.description", purpose: QUERY_COUNT)
   """
   ✨ Count the number of rows in the `Property` table where the `district` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
   """
@@ -162,6 +180,15 @@ extend type Property {
     distinct: Boolean = false
   ): Int! @fdc_generated(from: "Property.isDistressSale", purpose: QUERY_COUNT)
   """
+  ✨ Count the number of rows in the `Property` table where the `isMarketplaceListing` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  isMarketplaceListing_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.isMarketplaceListing", purpose: QUERY_COUNT)
+  """
   ✨ Count the number of rows in the `Property` table where the `nightlyRate` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
   """
   nightlyRate_count(
@@ -171,6 +198,51 @@ extend type Property {
     distinct: Boolean = false
   ): Int! @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_COUNT)
   """
+  ✨ Count the number of rows in the `Property` table where the `photos` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  photos_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.photos", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `plots` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  plots_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.plots", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `size` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  size_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.size", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `sqm` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  sqm_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.sqm", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `titleDoc` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  titleDoc_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.titleDoc", purpose: QUERY_COUNT)
+  """
   ✨ Count the number of rows in the `Property` table where the `title` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
   """
   title_count(
@@ -179,6 +251,15 @@ extend type Property {
     """
     distinct: Boolean = false
   ): Int! @fdc_generated(from: "Property.title", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `type` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  type_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.type", purpose: QUERY_COUNT)
   """
   ✨ Sum the `askingPrice` field in the `Property` table.
   """
@@ -198,6 +279,33 @@ extend type Property {
     distinct: Boolean = false
   ): Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_SUM)
   """
+  ✨ Sum the `photos` field in the `Property` table.
+  """
+  photos_sum(
+    """
+    Set to true to sum the distinct values.
+    """
+    distinct: Boolean = false
+  ): Int @fdc_generated(from: "Property.photos", purpose: QUERY_SUM)
+  """
+  ✨ Sum the `plots` field in the `Property` table.
+  """
+  plots_sum(
+    """
+    Set to true to sum the distinct values.
+    """
+    distinct: Boolean = false
+  ): Int @fdc_generated(from: "Property.plots", purpose: QUERY_SUM)
+  """
+  ✨ Sum the `sqm` field in the `Property` table.
+  """
+  sqm_sum(
+    """
+    Set to true to sum the distinct values.
+    """
+    distinct: Boolean = false
+  ): Int @fdc_generated(from: "Property.sqm", purpose: QUERY_SUM)
+  """
   ✨ Average the `askingPrice` field in the `Property` table.
   """
   askingPrice_avg(
@@ -216,6 +324,33 @@ extend type Property {
     distinct: Boolean = false
   ): Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_AVG)
   """
+  ✨ Average the `photos` field in the `Property` table.
+  """
+  photos_avg(
+    """
+    Set to true to average the distinct values.
+    """
+    distinct: Boolean = false
+  ): Float @fdc_generated(from: "Property.photos", purpose: QUERY_AVG)
+  """
+  ✨ Average the `plots` field in the `Property` table.
+  """
+  plots_avg(
+    """
+    Set to true to average the distinct values.
+    """
+    distinct: Boolean = false
+  ): Float @fdc_generated(from: "Property.plots", purpose: QUERY_AVG)
+  """
+  ✨ Average the `sqm` field in the `Property` table.
+  """
+  sqm_avg(
+    """
+    Set to true to average the distinct values.
+    """
+    distinct: Boolean = false
+  ): Float @fdc_generated(from: "Property.sqm", purpose: QUERY_AVG)
+  """
   ✨ Minimum of the `askingPrice` field in the `Property` table.
   """
   askingPrice_min: Float @fdc_generated(from: "Property.askingPrice", purpose: QUERY_MIN)
@@ -224,6 +359,18 @@ extend type Property {
   """
   nightlyRate_min: Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_MIN)
   """
+  ✨ Minimum of the `photos` field in the `Property` table.
+  """
+  photos_min: Int @fdc_generated(from: "Property.photos", purpose: QUERY_MIN)
+  """
+  ✨ Minimum of the `plots` field in the `Property` table.
+  """
+  plots_min: Int @fdc_generated(from: "Property.plots", purpose: QUERY_MIN)
+  """
+  ✨ Minimum of the `sqm` field in the `Property` table.
+  """
+  sqm_min: Int @fdc_generated(from: "Property.sqm", purpose: QUERY_MIN)
+  """
   ✨ Maximum of the `askingPrice` field in the `Property` table.
   """
   askingPrice_max: Float @fdc_generated(from: "Property.askingPrice", purpose: QUERY_MAX)
@@ -231,6 +378,18 @@ extend type Property {
   ✨ Maximum of the `nightlyRate` field in the `Property` table.
   """
   nightlyRate_max: Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_MAX)
+  """
+  ✨ Maximum of the `photos` field in the `Property` table.
+  """
+  photos_max: Int @fdc_generated(from: "Property.photos", purpose: QUERY_MAX)
+  """
+  ✨ Maximum of the `plots` field in the `Property` table.
+  """
+  plots_max: Int @fdc_generated(from: "Property.plots", purpose: QUERY_MAX)
+  """
+  ✨ Maximum of the `sqm` field in the `Property` table.
+  """
+  sqm_max: Int @fdc_generated(from: "Property.sqm", purpose: QUERY_MAX)
   """
   A generated field that is used for caching results in SDKs.
   """
