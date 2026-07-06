@@ -1,0 +1,11 @@
+specVersion: "v1"
+serviceId: "thelord-property"
+location: "us-central1"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "thelorddb"
+      cloudSql:
+        instanceId: "thelord-instance"
+connectorDirs: ["./connector"]

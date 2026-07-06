@@ -1,0 +1,6 @@
+extend type Booking {
+  """
+  ✨ Implicit foreign key field based on `Booking`.`property`. It must match the value of `Property`.`id`. See `@ref` for how to customize it.
+  """
+  propertyId: UUID! @fdc_generated(from: "Booking.property", purpose: IMPLICIT_REF_FIELD)
+}

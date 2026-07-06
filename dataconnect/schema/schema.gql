@@ -1,0 +1,17 @@
+type Property @table(plural: "properties") {
+  id: UUID! @default(expr: "uuidV4()")
+  title: String!
+  nightlyRate: Float!
+  district: String!
+  isDistressSale: Boolean
+  agisVerified: Boolean
+  askingPrice: Float
+  descriptionEmbedding: Vector @col(size: 768)
+}
+
+type Booking @table(plural: "bookings") {
+  id: UUID! @default(expr: "uuidV4()")
+  property: Property!
+  checkIn: Date!
+  checkOut: Date!
+}

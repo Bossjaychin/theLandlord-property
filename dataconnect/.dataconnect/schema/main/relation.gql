@@ -1,0 +1,238 @@
+extend type Booking {
+  """
+  Implicit metadata field that cannot be written. It provides extra information about query results.
+  """
+  _metadata: _Metadata @fdc_generated(from: "Booking", purpose: METADATA_FIELD)
+  """
+  ✨ Count the number of rows in the `Booking` table.
+  """
+  _count: Int! @fdc_generated(from: "Booking.", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Booking` table where the `checkIn` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  checkIn_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Booking.checkIn", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Booking` table where the `checkOut` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  checkOut_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Booking.checkOut", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Booking` table where the `id` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  id_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Booking.id", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Booking` table where the `propertyId` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  propertyId_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Booking.propertyId", purpose: QUERY_COUNT)
+  """
+  ✨ Minimum of the `checkIn` field in the `Booking` table.
+  """
+  checkIn_min: Date @fdc_generated(from: "Booking.checkIn", purpose: QUERY_MIN)
+  """
+  ✨ Minimum of the `checkOut` field in the `Booking` table.
+  """
+  checkOut_min: Date @fdc_generated(from: "Booking.checkOut", purpose: QUERY_MIN)
+  """
+  ✨ Maximum of the `checkIn` field in the `Booking` table.
+  """
+  checkIn_max: Date @fdc_generated(from: "Booking.checkIn", purpose: QUERY_MAX)
+  """
+  ✨ Maximum of the `checkOut` field in the `Booking` table.
+  """
+  checkOut_max: Date @fdc_generated(from: "Booking.checkOut", purpose: QUERY_MAX)
+  """
+  A generated field that is used for caching results in SDKs.
+  """
+  _id: ID! @fdc_generated(from: "Booking.id", purpose: ENTITY_ID)
+}
+extend type Property {
+  """
+  ✨ List `Booking` objects in a one-to-many relationship (where `Booking`.`property` is this object).
+  """
+  bookings_on_property(
+    """
+    Filter condition to narrow down the query results.
+    """
+    where: Booking_Filter
+
+    """
+    Order the query results by specific fields.
+    """
+    orderBy: [Booking_Order!]
+
+    """
+    Number of rows to skip before starting to return the results.
+    """
+    offset: Int
+
+    """
+    Maximum number of rows to return (defaults to 100 rows).
+    """
+    limit: Int = 100
+
+    """
+    Set to true to return distinct results.
+    """
+    distinct: Boolean = false
+
+    """
+    Filter condition to apply to the groups of aggregate queries.
+    """
+    having: Booking_Having
+  ): [Booking!]! @fdc_generated(from: "Booking.property", purpose: QUERY_MULTIPLE_ONE_TO_MANY)
+  """
+  Implicit metadata field that cannot be written. It provides extra information about query results.
+  """
+  _metadata: _Metadata @fdc_generated(from: "Property", purpose: METADATA_FIELD)
+  """
+  ✨ Count the number of rows in the `Property` table.
+  """
+  _count: Int! @fdc_generated(from: "Property.", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `agisVerified` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  agisVerified_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.agisVerified", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `askingPrice` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  askingPrice_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.askingPrice", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `descriptionEmbedding` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  descriptionEmbedding_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.descriptionEmbedding", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `district` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  district_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.district", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `id` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  id_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.id", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `isDistressSale` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  isDistressSale_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.isDistressSale", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `nightlyRate` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  nightlyRate_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_COUNT)
+  """
+  ✨ Count the number of rows in the `Property` table where the `title` field is non-null. Pass the `distinct` argument to instead count the number of distinct values.
+  """
+  title_count(
+    """
+    Set to true to count the number of distinct values.
+    """
+    distinct: Boolean = false
+  ): Int! @fdc_generated(from: "Property.title", purpose: QUERY_COUNT)
+  """
+  ✨ Sum the `askingPrice` field in the `Property` table.
+  """
+  askingPrice_sum(
+    """
+    Set to true to sum the distinct values.
+    """
+    distinct: Boolean = false
+  ): Float @fdc_generated(from: "Property.askingPrice", purpose: QUERY_SUM)
+  """
+  ✨ Sum the `nightlyRate` field in the `Property` table.
+  """
+  nightlyRate_sum(
+    """
+    Set to true to sum the distinct values.
+    """
+    distinct: Boolean = false
+  ): Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_SUM)
+  """
+  ✨ Average the `askingPrice` field in the `Property` table.
+  """
+  askingPrice_avg(
+    """
+    Set to true to average the distinct values.
+    """
+    distinct: Boolean = false
+  ): Float @fdc_generated(from: "Property.askingPrice", purpose: QUERY_AVG)
+  """
+  ✨ Average the `nightlyRate` field in the `Property` table.
+  """
+  nightlyRate_avg(
+    """
+    Set to true to average the distinct values.
+    """
+    distinct: Boolean = false
+  ): Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_AVG)
+  """
+  ✨ Minimum of the `askingPrice` field in the `Property` table.
+  """
+  askingPrice_min: Float @fdc_generated(from: "Property.askingPrice", purpose: QUERY_MIN)
+  """
+  ✨ Minimum of the `nightlyRate` field in the `Property` table.
+  """
+  nightlyRate_min: Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_MIN)
+  """
+  ✨ Maximum of the `askingPrice` field in the `Property` table.
+  """
+  askingPrice_max: Float @fdc_generated(from: "Property.askingPrice", purpose: QUERY_MAX)
+  """
+  ✨ Maximum of the `nightlyRate` field in the `Property` table.
+  """
+  nightlyRate_max: Float @fdc_generated(from: "Property.nightlyRate", purpose: QUERY_MAX)
+  """
+  A generated field that is used for caching results in SDKs.
+  """
+  _id: ID! @fdc_generated(from: "Property.id", purpose: ENTITY_ID)
+}

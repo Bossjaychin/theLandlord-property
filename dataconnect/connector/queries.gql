@@ -1,0 +1,75 @@
+query FetchDistrictAvailability(
+  $district: String!
+  $checkIn: Date!
+  $checkOut: Date!
+) @auth(level: USER, insecureReason: "Any user can query property availability by district") { # Only authenticated users can look up availability
+  properties(where: { district: { eq: $district } }) {
+    id
+    title
+    nightlyRate
+    # Fetch bookings that overlap with the requested dates
+    bookings_on_property(
+      where: {
+        _and: [
+          { checkIn: { le: $checkOut } }
+          { checkOut: { ge: $checkIn } }
+        ]
+      }
+    ) {
+      id
+      checkIn
+      checkOut
+    }
+  }
+}
+
+
+query SecureDistressSearch($buyerQuery: String!)
+# Enforces that the logged-in user must have custom KYC claims from your Auth system
+@auth(expr: "auth.token.kycVerified == true") {
+  properties: properties_descriptionEmbedding_similarity(
+    compare_embed: {
+      model: "text-multilingual-embedding-002"
+      text: $buyerQuery
+    }
+    where: {
+      isDistressSale: { eq: true }
+      # Enforces row-level safety: clients cannot request unverified listings
+      agisVerified: { eq: true }
+    }
+  ) {
+    id
+    title
+    askingPrice
+    district
+  }
+}
+
+
+query ListAllProperties(
+  $checkIn: Date!
+  $checkOut: Date!
+) @auth(level: USER, insecureReason: "Any user can browse all properties") {
+  properties {
+    id
+    title
+    nightlyRate
+    district
+    isDistressSale
+    agisVerified
+    askingPrice
+    bookings_on_property(
+      where: {
+        _and: [
+          { checkIn: { le: $checkOut } }
+          { checkOut: { ge: $checkIn } }
+        ]
+      }
+    ) {
+      id
+      checkIn
+      checkOut
+    }
+  }
+}
+

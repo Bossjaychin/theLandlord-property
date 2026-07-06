@@ -1,0 +1,55 @@
+# Create a standard property listing (no embedding)
+mutation CreateProperty(
+  $title: String!
+  $nightlyRate: Float!
+  $district: String!
+  $isDistressSale: Boolean
+  $agisVerified: Boolean
+  $askingPrice: Float
+) @auth(level: USER, insecureReason: "Any authenticated user can create properties for mock testing") {
+  property_insert(data: {
+    title: $title
+    nightlyRate: $nightlyRate
+    district: $district
+    isDistressSale: $isDistressSale
+    agisVerified: $agisVerified
+    askingPrice: $askingPrice
+  })
+}
+
+# Create a distress property listing WITH auto-generated Vertex AI embedding
+# Used for semantic similarity search via MatchDistressProperties
+mutation CreateDistressProperty(
+  $title: String!
+  $nightlyRate: Float!
+  $district: String!
+  $askingPrice: Float!
+  $description: String!
+) @auth(level: USER, insecureReason: "Admins create distress listings with AI embeddings") {
+  property_insert(data: {
+    title: $title
+    nightlyRate: $nightlyRate
+    district: $district
+    isDistressSale: true
+    agisVerified: true
+    askingPrice: $askingPrice
+    # Auto-generate a 768-dim Vertex AI embedding for semantic matching
+    descriptionEmbedding_embed: {
+      model: "text-multilingual-embedding-002"
+      text: $description
+    }
+  })
+}
+
+# Create a booking for a property
+mutation CreateBooking(
+  $propertyId: UUID!
+  $checkIn: Date!
+  $checkOut: Date!
+) @auth(level: USER, insecureReason: "Any authenticated user can book a property") {
+  booking_insert(data: {
+    propertyId: $propertyId
+    checkIn: $checkIn
+    checkOut: $checkOut
+  })
+}

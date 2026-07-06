@@ -1,0 +1,148 @@
+extend type Query {
+  """
+  ✨ Look up a single `Booking` based on `id`, `key` or `first` and return selected fields (or `null` if not found).
+  """
+  booking(
+    """
+    The unique ID of the object.
+    """
+    id: UUID
+
+    """
+    The key used to identify the object.
+    """
+    key: Booking_Key
+
+    """
+    Fetch the first row based on the filters and ordering.
+    """
+    first: Booking_FirstRow
+  ): Booking @fdc_generated(from: "Booking", purpose: QUERY_SINGLE)
+  """
+  ✨ Look up a single `Property` based on `id`, `key` or `first` and return selected fields (or `null` if not found).
+  """
+  property(
+    """
+    The unique ID of the object.
+    """
+    id: UUID
+
+    """
+    The key used to identify the object.
+    """
+    key: Property_Key
+
+    """
+    Fetch the first row based on the filters and ordering.
+    """
+    first: Property_FirstRow
+  ): Property @fdc_generated(from: "Property", purpose: QUERY_SINGLE)
+  """
+  ✨ List `Booking` objects in the table and return selected fields, optionally filtered by `where` conditions
+  """
+  bookings(
+    """
+    Filter condition to narrow down the query results.
+    """
+    where: Booking_Filter
+
+    """
+    Order the query results by specific fields.
+    """
+    orderBy: [Booking_Order!]
+
+    """
+    Number of rows to skip before starting to return the results.
+    """
+    offset: Int
+
+    """
+    Maximum number of rows to return (defaults to 100 rows).
+    """
+    limit: Int = 100
+
+    """
+    Set to true to return distinct results.
+    """
+    distinct: Boolean = false
+
+    """
+    Filter condition to apply to the groups of aggregate queries.
+    """
+    having: Booking_Having
+  ): [Booking!]! @fdc_generated(from: "Booking", purpose: QUERY_MULTIPLE)
+  """
+  ✨ List `Property` objects in the table and return selected fields, optionally filtered by `where` conditions
+  """
+  properties(
+    """
+    Filter condition to narrow down the query results.
+    """
+    where: Property_Filter
+
+    """
+    Order the query results by specific fields.
+    """
+    orderBy: [Property_Order!]
+
+    """
+    Number of rows to skip before starting to return the results.
+    """
+    offset: Int
+
+    """
+    Maximum number of rows to return (defaults to 100 rows).
+    """
+    limit: Int = 100
+
+    """
+    Set to true to return distinct results.
+    """
+    distinct: Boolean = false
+
+    """
+    Filter condition to apply to the groups of aggregate queries.
+    """
+    having: Property_Having
+  ): [Property!]! @fdc_generated(from: "Property", purpose: QUERY_MULTIPLE)
+  """
+  ✨ List `Property` objects and return selected fields, ordered by vector similarity between the `descriptionEmbedding` field and `compare_embed`.
+  (Alternatively, `compare` can be used if the input is a raw Vector.)
+  """
+  properties_descriptionEmbedding_similarity(
+    """
+    Vector to compare with the stored vectors.
+    """
+    compare: Vector
+
+    """
+    ✨ `_embed` server value variant of `compare` (Vector to compare with the stored vectors.)
+    """
+    compare_embed: Vector_Embed
+
+    """
+    Similarity method to use for vector comparison (defaults to `INNER_PRODUCT`).
+    """
+    method: VectorSimilarityMethod = INNER_PRODUCT
+
+    """
+    Threshold for distance comparison.
+    """
+    within: Float
+
+    """
+    Filter condition to apply when searching for similar vectors.
+    """
+    where: Property_Filter
+
+    """
+    Limit the number of similar vectors returned (defaults to 100 rows).
+    """
+    limit: Int = 100
+
+    """
+    Number of rows to skip before starting to return the results.
+    """
+    offset: Int
+  ): [Property!]! @fdc_generated(from: "Property.descriptionEmbedding", purpose: QUERY_MULTIPLE_BY_SIMILARITY)
+}
