@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import Admin from "./Admin";
+import Marketplace from "./Marketplace";
 import { dataConnect, auth } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { fetchDistrictAvailability, createProperty, createBooking, secureDistressSearch, createDistressProperty, listAllProperties } from "./lib/dataconnect";
@@ -35,6 +36,7 @@ const T = {
   riskSoft: "#FBEAE8",
   teal: "#0E6B75",
   tealSoft: "#E3F0F2",
+  purple: "#6B3FA0",
   paper: "#F5F6F2",
   card: "#FFFFFF",
   line: "#E2E5DF",
@@ -1744,6 +1746,7 @@ export default function App() {
           }}>
             {[
               ["deals", "⚡ Distress Deals"],
+              ["marketplace", "🏪 Marketplace"],
               ["shortlet", "🏡 Shortlet Manager"],
               ["profile", "👤 Profile"],
               ...(user ? [["admin", "⚙️ Admin"]] : []),
@@ -1761,7 +1764,7 @@ export default function App() {
                     fontWeight: active ? 700 : 600,
                     cursor: "pointer",
                     background: active
-                      ? (k === "deals" ? T.green : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : T.ink)
+                      ? (k === "deals" ? T.green : k === "marketplace" ? T.purple : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : T.ink)
                       : "transparent",
                     color: active ? "#fff" : T.sub,
                     transition: "all .2s ease",
@@ -1878,6 +1881,8 @@ export default function App() {
       <main style={{ maxWidth: 1120, margin: "0 auto", padding: "18px 18px 90px" }}>
         {tab === "deals" ? (
           <DealsView cur={cur} onOpen={setModal} query={query} setQuery={setQuery} dealsList={usingEmulator ? dbProperties : dealsList} onAiSearch={handleAiSearch} aiResults={aiResults} aiSearching={aiSearching} usingEmulator={usingEmulator} />
+        ) : tab === "marketplace" ? (
+          <Marketplace cur={cur} onWhatsAppOpen={() => setWaOpen(true)} />
         ) : tab === "profile" ? (
           <Profile
             user={user}
