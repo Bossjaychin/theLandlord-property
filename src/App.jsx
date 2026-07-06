@@ -1651,14 +1651,9 @@ export default function App() {
         }
         .spinner { animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        /* Diaspora banner shimmer gradient text */
-        .diaspora-shimmer {
-          background: linear-gradient(90deg, #C9A227 0%, #fff 40%, #C9A227 70%, #fff 100%);
-          background-size: 200% auto;
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          animation: shimmer 4s linear infinite;
+        /* Diaspora banner gold/white heading */
+        .diaspora-heading {
+          color: #ffffff;
         }
       `}</style>
 
@@ -1764,7 +1759,7 @@ export default function App() {
                     fontWeight: active ? 700 : 600,
                     cursor: "pointer",
                     background: active
-                      ? (k === "deals" ? T.green : k === "marketplace" ? T.purple : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : T.ink)
+                      ? (k === "deals" ? T.green : k === "marketplace" ? T.green : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : T.ink)
                       : "transparent",
                     color: active ? "#fff" : T.sub,
                     transition: "all .2s ease",
@@ -1926,8 +1921,8 @@ export default function App() {
           <div style={{ position: "absolute", left: "45%", bottom: -80, width: 200, height: 200, borderRadius: "50%", background: `rgba(14,107,117,.1)` }} />
           <div style={{ position: "relative", zIndex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 12 }}>Diaspora Wealth Accelerator</div>
-            <div className="diaspora-shimmer" style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: "clamp(22px, 4vw, 36px)", lineHeight: 1.2, marginBottom: 14, maxWidth: 700 }}>
-              Live in London, Lagos, or Houston — own in Abuja.
+            <div className="diaspora-heading" style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: "clamp(22px, 4vw, 36px)", lineHeight: 1.2, marginBottom: 14, maxWidth: 700 }}>
+              Live in London, Lagos, or Houston — <span style={{ color: T.gold }}>own in Abuja.</span>
             </div>
             <p style={{ fontSize: 14.5, color: "rgba(255,255,255,0.78)", maxWidth: 620, lineHeight: 1.65, marginBottom: 24 }}>
               Every deal supports USD, GBP, and CAD payments through our partner-bank escrow. Your AI concierge handles everything on the ground — from AGIS title searches to WhatsApp-verified tenant check-ins — while your portfolio generates verified monthly income.

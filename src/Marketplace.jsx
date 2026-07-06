@@ -1,9 +1,8 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef } from "react";
 
 /* ============================================================
    AI PROPERTY MARKETPLACE — Pillar 3
-   Natural-language search across 12 property categories.
-   Accent: purple #6B3FA0
+   Accents unified to brand Green (#0E5A3A) and Gold (#C9A227).
    ============================================================ */
 
 const T = {
@@ -17,9 +16,6 @@ const T = {
   amberSoft: "#FBEEDF",
   teal: "#0E6B75",
   tealSoft: "#E3F0F2",
-  purple: "#6B3FA0",
-  purpleSoft: "#F0EAF9",
-  purpleDark: "#4E2D78",
   paper: "#F5F6F2",
   card: "#FFFFFF",
   line: "#E2E5DF",
@@ -39,23 +35,130 @@ const fmtN = (n, cur) => {
   return "₦" + n.toLocaleString();
 };
 
+/* ── Inline SVG Icons replacing emojis ── */
+const CategoryIcon = ({ type, color = "currentColor", size = 20 }) => {
+  switch (type) {
+    case "Home":
+    case "Apartment":
+    case "Duplex":
+    case "Luxury Home":
+    case "residential":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>
+      );
+    case "Commercial Building":
+    case "Office":
+    case "Hotel":
+    case "commercial":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <rect x="2" y="2" width="20" height="20" rx="2" ry="2" />
+          <line x1="6" y1="6" x2="6" y2="6.01" />
+          <line x1="6" y1="10" x2="6" y2="10.01" />
+          <line x1="6" y1="14" x2="6" y2="14.01" />
+          <line x1="6" y1="18" x2="6" y2="18.01" />
+          <line x1="10" y1="6" x2="10" y2="6.01" />
+          <line x1="10" y1="10" x2="10" y2="10.01" />
+          <line x1="10" y1="14" x2="10" y2="14.01" />
+          <line x1="10" y1="18" x2="10" y2="18.01" />
+          <line x1="14" y1="6" x2="14" y2="6.01" />
+          <line x1="14" y1="10" x2="14" y2="10.01" />
+          <line x1="14" y1="14" x2="14" y2="14.01" />
+          <line x1="14" y1="18" x2="14" y2="18.01" />
+          <line x1="18" y1="6" x2="18" y2="6.01" />
+          <line x1="18" y1="10" x2="18" y2="10.01" />
+          <line x1="18" y1="14" x2="18" y2="14.01" />
+          <line x1="18" y1="18" x2="18" y2="18.01" />
+        </svg>
+      );
+    case "Warehouse":
+    case "Industrial":
+    case "industrial":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <path d="M22 21H2V3l10 4 10-4v18z" />
+          <path d="M6 17h4v4H6z" />
+          <path d="M14 17h4v4h-4z" />
+        </svg>
+      );
+    case "Land":
+    case "Estate":
+    case "Agricultural Land":
+    case "land":
+    default:
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
+      );
+  }
+};
+
 /* ── Type meta ── */
 const TYPE_META = {
-  "Home":               { group: "residential", icon: "🏠", color: T.green,      colorSoft: T.mint },
-  "Apartment":          { group: "residential", icon: "🏢", color: T.green,      colorSoft: T.mint },
-  "Duplex":             { group: "residential", icon: "🏘️", color: T.green,      colorSoft: T.mint },
-  "Luxury Home":        { group: "residential", icon: "✨", color: T.gold,       colorSoft: T.goldSoft },
-  "Commercial Building":{ group: "commercial",  icon: "🏗️", color: T.teal,       colorSoft: T.tealSoft },
-  "Office":             { group: "commercial",  icon: "🖥️", color: T.teal,       colorSoft: T.tealSoft },
-  "Warehouse":          { group: "commercial",  icon: "🏭", color: T.teal,       colorSoft: T.tealSoft },
-  "Hotel":              { group: "commercial",  icon: "🏨", color: T.teal,       colorSoft: T.tealSoft },
-  "Land":               { group: "land",        icon: "🌍", color: T.purple,     colorSoft: T.purpleSoft },
-  "Estate":             { group: "land",        icon: "🏡", color: T.purple,     colorSoft: T.purpleSoft },
-  "Agricultural Land":  { group: "land",        icon: "🌾", color: T.purple,     colorSoft: T.purpleSoft },
-  "Industrial":         { group: "land",        icon: "⚙️", color: T.amber,      colorSoft: T.amberSoft },
+  "Home":               { group: "residential", label: "Residential Home", color: T.green },
+  "Apartment":          { group: "residential", label: "Apartment", color: T.green },
+  "Duplex":             { group: "residential", label: "Duplex", color: T.green },
+  "Luxury Home":        { group: "residential", label: "Luxury Mansion", color: T.green },
+  "Commercial Building":{ group: "commercial",  label: "Commercial Plaza", color: T.green },
+  "Office":             { group: "commercial",  label: "Office Space", color: T.green },
+  "Warehouse":          { group: "commercial",  label: "Warehouse", color: T.green },
+  "Hotel":              { group: "commercial",  label: "Hotel", color: T.green },
+  "Land":               { group: "land",        label: "Land Plot", color: T.green },
+  "Estate":             { group: "land",        label: "Estate Area", color: T.green },
+  "Agricultural Land":  { group: "land",        label: "Farmland", color: T.green },
+  "Industrial":         { group: "land",        label: "Industrial Zone", color: T.green },
 };
 
 const GROUP_LABELS = { residential: "Residential", commercial: "Commercial", land: "Land & Estates" };
+
+/* ── Explanations for title documents (C of O, R of O, Area Council) ── */
+const TITLE_EXPLANATIONS = {
+  "C of O": "Certificate of Occupancy: The highest legal proof of ownership in Nigeria, issued directly by the State Governor. Maximum security.",
+  "R of O": "Right of Occupancy: A formal administrative grant of land rights. Highly secure, but regularized directly at the ministerial level.",
+  "Area Council": "Local Government Grant: Needs regularization at AGIS (Abuja Geographic Information Systems) to secure a federal C of O.",
+};
+
+const TitleExpander = ({ titleDoc }) => {
+  const [open, setOpen] = useState(false);
+  const text = TITLE_EXPLANATIONS[titleDoc.split(" ")[0]] || "Verification pending. Review ownership chain with legal counsel.";
+  return (
+    <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        style={{
+          background: "transparent", border: "none", color: T.sub, cursor: "pointer",
+          fontSize: 11, fontWeight: 700, padding: "0 4px", display: "inline-flex",
+          alignItems: "center", justifyContent: "center", textDecoration: "underline",
+        }}
+        title="Click to view title document explanation"
+      >
+        {titleDoc} ⓘ
+      </button>
+      {open && (
+        <>
+          <div
+            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+            style={{ position: "fixed", inset: 0, zIndex: 98 }}
+          />
+          <div style={{
+            position: "absolute", bottom: "100%", left: 0, transform: "translateY(-4px)",
+            width: 240, background: T.ink, color: "#fff", padding: 10, borderRadius: 8,
+            fontSize: 11, lineHeight: 1.45, zIndex: 99, boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            border: `1px solid rgba(255,255,255,0.15)`,
+          }}>
+            {text}
+          </div>
+        </>
+      )}
+    </span>
+  );
+};
 
 /* ── 24 mock listings (2 per type) ── */
 const LISTINGS = [
@@ -330,7 +433,7 @@ const LISTINGS = [
 function parseQuery(raw) {
   const q = raw.toLowerCase();
 
-  /* type keywords → type matches */
+  /* type keywords */
   const typeMap = {
     "home": ["Home"],
     "house": ["Home"],
@@ -370,16 +473,13 @@ function parseQuery(raw) {
     if (q.includes(kw)) types.forEach(t => matchedTypes.add(t));
   }
 
-  /* group shortcuts */
   if (q.includes("residential")) ["Home", "Apartment", "Duplex", "Luxury Home"].forEach(t => matchedTypes.add(t));
   if (q.includes("commercial building") || (q.includes("commercial") && !q.includes("land")))
     ["Commercial Building", "Office", "Warehouse", "Hotel"].forEach(t => matchedTypes.add(t));
 
-  /* quantity of plots */
   const plotsMatch = q.match(/(\d+)\s*plot/);
   const quantity = plotsMatch ? parseInt(plotsMatch[1]) : null;
 
-  /* budget */
   let maxPrice = null;
   const billions = q.match(/(?:under|below|max|maximum|around|≤)?\s*₦?\s*(\d+(?:\.\d+)?)\s*(?:bn|billion)/);
   const millions = q.match(/(?:under|below|max|maximum|around|≤)?\s*₦?\s*(\d+(?:\.\d+)?)\s*(?:m|million)/);
@@ -388,7 +488,6 @@ function parseQuery(raw) {
   else if (millions) maxPrice = parseFloat(millions[1]) * 1_000_000;
   else if (raw_num) maxPrice = parseInt(raw_num[1].replace(/,/g, ""));
 
-  /* district */
   const districts = [
     "jabi", "guzape", "wuse", "maitama", "katampe", "lugbe",
     "kubwa", "apo", "gwarinpa", "idu", "bwari", "kuje",
@@ -396,7 +495,6 @@ function parseQuery(raw) {
   ];
   const district = districts.find(d => q.includes(d)) || null;
 
-  /* purpose hints */
   const purposes = [];
   if (q.includes("shortlet") || q.includes("short let")) purposes.push("shortlet");
   if (q.includes("estate development") || q.includes("develop")) purposes.push("estate development");
@@ -408,11 +506,9 @@ function parseQuery(raw) {
   if (q.includes("corporate") || q.includes("office")) purposes.push("corporate office");
   if (q.includes("luxury") || q.includes("premium")) purposes.push("luxury");
 
-  /* bedroom count */
   const bedMatch = q.match(/(\d)\s*(?:bed|bedroom)/);
   const beds = bedMatch ? parseInt(bedMatch[1]) : null;
 
-  /* size hints */
   const sqmMatch = q.match(/(\d[\d,]+)\s*sqm/);
   const minSqm = sqmMatch ? parseInt(sqmMatch[1].replace(/,/g, "")) * 0.7 : null;
 
@@ -424,20 +520,17 @@ function scoreListings(listings, signals) {
     let score = 0;
     const meta = TYPE_META[l.type] || {};
 
-    // Type match (highest weight)
     if (signals.matchedTypes.length > 0) {
       if (signals.matchedTypes.includes(l.type)) score += 35;
       else {
-        // partial group match
         const lGroup = meta.group;
         const hasGroupMatch = signals.matchedTypes.some(t => TYPE_META[t]?.group === lGroup);
         if (hasGroupMatch) score += 15;
       }
     } else {
-      score += 15; // neutral — show everything
+      score += 15;
     }
 
-    // District match
     if (signals.district) {
       const dist = l.district.toLowerCase();
       if (dist.includes(signals.district) || signals.district.includes(dist.split(" ")[0])) score += 25;
@@ -445,15 +538,13 @@ function scoreListings(listings, signals) {
       score += 10;
     }
 
-    // Price within budget
     if (signals.maxPrice) {
       if (l.price <= signals.maxPrice) score += 20;
-      else if (l.price <= signals.maxPrice * 1.15) score += 8; // slightly over budget
+      else if (l.price <= signals.maxPrice * 1.15) score += 8;
     } else {
       score += 10;
     }
 
-    // Purpose match
     if (signals.purposes.length > 0) {
       const matched = signals.purposes.filter(p => l.purpose.some(lp => lp.toLowerCase().includes(p.toLowerCase())));
       score += Math.min(matched.length * 6, 12);
@@ -461,21 +552,16 @@ function scoreListings(listings, signals) {
       score += 6;
     }
 
-    // Bedroom match
     if (signals.beds) {
       if (l.size && l.size.includes(signals.beds + " bed")) score += 8;
     }
 
-    // Quantity (plots) — prefer listings with ≥ quantity plots
     if (signals.quantity && l.plots) {
       if (l.plots >= signals.quantity) score += 10;
       else score -= 5;
     }
 
-    // Sqm match
     if (signals.minSqm && l.sqm >= signals.minSqm) score += 5;
-
-    // Verified bonus
     if (l.verified) score += 3;
 
     return { ...l, _score: Math.min(Math.round(score), 100) };
@@ -489,28 +575,28 @@ const Pill = ({ children, bg, color, border }) => (
   <span style={{
     background: bg, color,
     border: border ? `1px solid ${border}` : "none",
-    borderRadius: 999, padding: "3px 10px",
-    fontSize: 11.5, fontWeight: 600, letterSpacing: 0.2,
+    borderRadius: 999, padding: "3.5px 11px",
+    fontSize: 11, fontWeight: 700, letterSpacing: 0.2,
     whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5,
   }}>
     {children}
   </span>
 );
 
-const SectionLabel = ({ children, color = T.purple }) => (
+const SectionLabel = ({ children, color = T.green }) => (
   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.6, textTransform: "uppercase", color, marginBottom: 8 }}>
     {children}
   </div>
 );
 
 /* ══════════════════════════════════════════════════════════
-   EXAMPLE QUERIES
+   EXAMPLES
    ══════════════════════════════════════════════════════════ */
 const EXAMPLES = [
   "10 plots of land in Lugbe for estate development under ₦200 million",
-  "Luxury 5-bedroom home in Maitama or Katampe",
+  "Luxury 5-bedroom mansion in Maitama or Ministers Hill",
   "Warehouse in Idu for logistics, at least 2,000 sqm",
-  "2-bedroom apartment in Jabi or Wuse 2 good for shortlet",
+  "2-bedroom apartment in Jabi or Wuse 2 suitable for shortlet",
   "Agricultural farmland around Bwari, at least 3 hectares",
   "Operating hotel in Abuja under ₦3 billion",
   "Office space in CBD or Maitama for corporate use",
@@ -521,11 +607,10 @@ const EXAMPLES = [
    ══════════════════════════════════════════════════════════ */
 const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
   if (!listing) return null;
-  const meta = TYPE_META[listing.type] || {};
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(12,43,31,.45)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 12 }}
+      style={{ position: "fixed", inset: 0, background: "rgba(12,43,31,.45)", zIndex: 99, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 12 }}
     >
       <div
         onClick={e => e.stopPropagation()}
@@ -534,24 +619,24 @@ const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 22 }}>{meta.icon}</span>
-              <Pill bg={meta.colorSoft} color={meta.color}>{listing.type}</Pill>
-              {listing.verified && <Pill bg={T.mint} color={T.green}>✓ Verified</Pill>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <CategoryIcon type={listing.type} color={T.green} size={16} />
+              <Pill bg={T.mint} color={T.green}>{TYPE_META[listing.type]?.label || listing.type}</Pill>
+              {listing.verified && <Pill bg={T.goldSoft} color={T.gold}>✓ Verified Seller</Pill>}
             </div>
-            <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.ink, lineHeight: 1.2 }}>{listing.headline}</div>
+            <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.ink, lineHeight: 1.25 }}>{listing.headline}</div>
             <div style={{ fontSize: 13, color: T.sub, marginTop: 4 }}>{listing.district}, Abuja · {listing.photos} photos · Listed {listing.listed} day{listing.listed !== 1 ? "s" : ""} ago</div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: T.card, borderRadius: 10, width: 34, height: 34, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
+          <button onClick={onClose} aria-label="Close details" style={{ border: "none", background: T.card, borderRadius: 10, width: 34, height: 34, cursor: "pointer", fontSize: 16, flexShrink: 0, color: T.ink }}>✕</button>
         </div>
 
         {/* Price + size */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 18 }}>
           {[
-            ["Asking Price", fmtN(listing.price, cur), T.ink],
-            ["Size", listing.size, T.purple],
-            ["Title Document", listing.title_doc, listing.verified ? T.green : T.amber],
-            ["Agent", listing.agent, T.sub],
+            ["Asking Price", fmtN(listing.price, cur), T.green],
+            ["Size", listing.size, T.ink],
+            ["Title Document", <TitleExpander titleDoc={listing.title_doc} />, T.ink],
+            ["Listed By", listing.agent, T.sub],
           ].map(([k, v, c]) => (
             <div key={k} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px" }}>
               <div style={{ fontSize: 11, color: T.sub, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8 }}>{k}</div>
@@ -571,7 +656,7 @@ const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
           <SectionLabel>Key Features</SectionLabel>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {listing.features.map(f => (
-              <Pill key={f} bg={meta.colorSoft} color={meta.color}>✓ {f}</Pill>
+              <Pill key={f} bg={T.mint} color={T.green}>✓ {f}</Pill>
             ))}
           </div>
         </div>
@@ -587,7 +672,7 @@ const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
         </div>
 
         {/* CTAs */}
-        <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, marginTop: 22, flexWrap: "wrap" }}>
           <button
             onClick={() => onWhatsApp && onWhatsApp(listing)}
             style={{ flex: 1, minWidth: 200, background: "#1FAF55", color: "#fff", border: "none", borderRadius: 12, padding: "13px 20px", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
@@ -595,7 +680,7 @@ const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
             💬 Enquire on WhatsApp
           </button>
           <button
-            style={{ flex: "0 0 auto", background: T.card, color: T.sub, border: `1.5px solid ${T.line}`, borderRadius: 12, padding: "13px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
+            style={{ flex: "0 0 auto", background: T.card, color: T.green, border: `1.5px solid ${T.green}`, borderRadius: 12, padding: "13px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
           >
             📅 Request Viewing
           </button>
@@ -615,6 +700,16 @@ const ListingModal = ({ listing, cur, onClose, onWhatsApp }) => {
 const ListingCard = ({ listing, cur, onOpen, showScore }) => {
   const [hovered, setHovered] = useState(false);
   const meta = TYPE_META[listing.type] || {};
+
+  // Standardized features length to prevent height voids
+  const paddedFeatures = useMemo(() => {
+    const list = listing.features.slice(0, 3);
+    while (list.length < 3) {
+      list.push("");
+    }
+    return list;
+  }, [listing.features]);
+
   return (
     <div
       onClick={() => onOpen(listing)}
@@ -622,43 +717,44 @@ const ListingCard = ({ listing, cur, onOpen, showScore }) => {
       onMouseLeave={() => setHovered(false)}
       style={{
         background: T.card,
-        border: `1px solid ${hovered ? meta.color + "55" : T.line}`,
+        border: `1px solid ${hovered ? T.green + "66" : T.line}`,
         borderRadius: 16,
         overflow: "hidden",
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
+        height: "100%",
         transition: "transform .18s ease, box-shadow .18s ease, border-color .18s ease",
         transform: hovered ? "translateY(-3px)" : "none",
-        boxShadow: hovered ? `0 8px 24px rgba(0,0,0,.09)` : "0 1px 3px rgba(12,43,31,.05)",
+        boxShadow: hovered ? `0 8px 24px rgba(12,43,31,.08)` : "0 1px 3px rgba(12,43,31,.03)",
       }}
     >
-      {/* Colour header strip */}
+      {/* Brand-consistent Header strip */}
       <div style={{
-        background: meta.colorSoft,
-        padding: "14px 16px 12px",
+        background: T.mint,
+        padding: "16px 16px 14px",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "flex-start",
         gap: 8,
       }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 18 }}>{meta.icon}</span>
-            <Pill bg={meta.color} color="#fff">{listing.type}</Pill>
-            {listing.verified && <Pill bg={T.mint} color={T.green}>✓</Pill>}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+            <CategoryIcon type={listing.type} color={T.green} size={15} />
+            <Pill bg={T.card} color={T.green} border={T.line}>{meta.label || listing.type}</Pill>
+            {listing.verified && <Pill bg={T.goldSoft} color={T.gold}>Verified</Pill>}
           </div>
-          <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 15.5, color: T.ink, lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+          <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 16, color: T.ink, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 41 }}>
             {listing.headline}
           </div>
-          <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>
-            {listing.district}, Abuja · {listing.photos} 📷 · {listing.listed}d ago
+          <div style={{ fontSize: 12, color: T.sub, marginTop: 4 }}>
+            {listing.district}, Abuja · {listing.photos} 📷
           </div>
         </div>
         {showScore && listing._score != null && (
-          <div style={{ flexShrink: 0, textAlign: "center", background: T.card, borderRadius: 10, padding: "6px 10px", minWidth: 50 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: T.purple, textTransform: "uppercase", letterSpacing: 0.5 }}>Match</div>
-            <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: listing._score >= 70 ? T.green : listing._score >= 45 ? T.gold : T.amber }}>
+          <div style={{ flexShrink: 0, textAlign: "center", background: T.card, borderRadius: 10, padding: "6px 8px", minWidth: 50, border: `1px solid ${T.line}` }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: 0.5 }}>Match</div>
+            <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 16, color: listing._score >= 70 ? T.green : listing._score >= 45 ? T.gold : T.amber }}>
               {listing._score}%
             </div>
           </div>
@@ -666,16 +762,18 @@ const ListingCard = ({ listing, cur, onOpen, showScore }) => {
       </div>
 
       {/* Body */}
-      <div style={{ padding: "12px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
-        <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.ink }}>
+      <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 21, color: T.ink }}>
           {fmtN(listing.price, cur)}
         </div>
-        <div style={{ fontSize: 12.5, color: T.sub, marginTop: 2, marginBottom: 10 }}>{listing.size}</div>
+        <div style={{ fontSize: 12.5, color: T.sub, marginTop: 2, marginBottom: 12 }}>{listing.size}</div>
 
-        {/* Feature pills — top 3 */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, flex: 1, alignContent: "flex-start" }}>
-          {listing.features.slice(0, 3).map(f => (
-            <Pill key={f} bg={meta.colorSoft} color={meta.color}>{f}</Pill>
+        {/* Feature pills — standard height to prevent lopsidedness */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, minHeight: 52, alignContent: "flex-start", marginBottom: 8 }}>
+          {paddedFeatures.map((f, i) => f ? (
+            <Pill key={f + "-" + i} bg={T.paper} color={T.ink}>{f}</Pill>
+          ) : (
+            <span key={"empty-" + i} style={{ display: "inline-block", height: 22, width: 60 }} />
           ))}
           {listing.features.length > 3 && (
             <Pill bg={T.paper} color={T.sub} border={T.line}>+{listing.features.length - 3} more</Pill>
@@ -683,10 +781,15 @@ const ListingCard = ({ listing, cur, onOpen, showScore }) => {
         </div>
       </div>
 
-      {/* Footer */}
-      <div style={{ padding: "8px 16px 14px", borderTop: `1px solid ${T.line}`, display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
-        <span style={{ fontSize: 12, color: T.sub, fontWeight: 500 }}>{listing.title_doc}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: meta.color }}>View details →</span>
+      {/* Bottom aligned card footer */}
+      <div style={{ padding: "12px 16px 14px", borderTop: `1px solid ${T.line}`, display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto", background: T.paper }}>
+        <TitleExpander titleDoc={listing.title_doc} />
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: T.green, display: "inline-flex", alignItems: "center", gap: 3 }}>
+          View details
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </span>
       </div>
     </div>
   );
@@ -714,7 +817,6 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
 
   const handleWhatsApp = (listing) => {
     if (onWhatsAppOpen) onWhatsAppOpen();
-    // Pre-fill context — passed via whatsapp panel in parent
   };
 
   const signals = useMemo(() => submitted ? parseQuery(submitted) : null, [submitted]);
@@ -722,13 +824,11 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
   const results = useMemo(() => {
     let base = LISTINGS;
 
-    // group filter
     if (groupFilter !== "all") {
       base = base.filter(l => TYPE_META[l.type]?.group === groupFilter);
     }
 
     if (!signals) {
-      // No query — sort by recency
       return base.sort((a, b) => a.listed - b.listed).map(l => ({ ...l, _score: null }));
     }
 
@@ -742,13 +842,13 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
     <div>
       {/* ── Hero ── */}
       <div style={{
-        background: `linear-gradient(135deg, ${T.purpleDark} 0%, ${T.purple} 55%, #0E3B4E 100%)`,
+        background: `linear-gradient(135deg, ${T.greenDark} 0%, ${T.green} 60%, #052216 100%)`,
         borderRadius: 20, padding: "32px 28px", color: "#fff",
         position: "relative", overflow: "hidden",
-        boxShadow: "0 8px 28px rgba(78,45,120,0.22)",
+        boxShadow: "0 8px 24px rgba(10,66,43,0.12)",
       }}>
-        <div style={{ position: "absolute", right: -50, top: -50, width: 220, height: 220, borderRadius: "50%", background: "rgba(201,162,39,.1)" }} />
-        <div style={{ position: "absolute", left: "50%", bottom: -70, width: 180, height: 180, borderRadius: "50%", background: "rgba(14,107,117,.15)" }} />
+        <div style={{ position: "absolute", right: -50, top: -50, width: 220, height: 220, borderRadius: "50%", background: "rgba(255,255,255,0.03)" }} />
+        <div style={{ position: "absolute", left: "55%", bottom: -70, width: 180, height: 180, borderRadius: "50%", background: "rgba(201,162,39,0.06)" }} />
         <div style={{ position: "relative", zIndex: 1 }}>
           <SectionLabel color={T.gold}>Pillar 3 · AI Property Marketplace — Abuja</SectionLabel>
           <h1 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: "clamp(22px,4vw,34px)", lineHeight: 1.15, margin: "0 0 10px", maxWidth: 600 }}>
@@ -766,7 +866,7 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSearch(); }}
-              placeholder='e.g. "I need 10 plots of land in Lugbe for estate development under ₦200 million"'
+              placeholder="Describe what you need, e.g. 'I need a 3-bedroom serviced apartment in Wuse 2 under ₦80m with 24/7 power'"
               rows={2}
               aria-label="Describe the property you are looking for"
               style={{
@@ -789,13 +889,12 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
                 <button
                   id="marketplace-search-btn"
                   onClick={handleSearch}
-                  disabled={!query.trim()}
                   style={{
-                    background: query.trim() ? `linear-gradient(135deg, ${T.purple}, ${T.purpleDark})` : T.line,
+                    background: query.trim() ? T.green : T.paper,
                     color: query.trim() ? "#fff" : T.sub,
-                    border: "none", borderRadius: 10, padding: "9px 20px",
-                    fontWeight: 700, fontSize: 13.5, cursor: query.trim() ? "pointer" : "default",
-                    transition: "background .2s ease",
+                    border: query.trim() ? "none" : `1px solid ${T.line}`, borderRadius: 10, padding: "9px 20px",
+                    fontWeight: 700, fontSize: 13.5, cursor: "pointer",
+                    transition: "all .2s ease",
                   }}
                 >
                   ✦ AI Search
@@ -805,24 +904,23 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
           </div>
 
           {/* Example chips */}
-          <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <span style={{ fontSize: 11.5, opacity: 0.7, alignSelf: "center" }}>Try:</span>
+          <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 11.5, opacity: 0.7 }}>Try:</span>
             {EXAMPLES.slice(0, 4).map(ex => (
               <button
                 key={ex}
                 onClick={() => handleExample(ex)}
                 style={{
-                  background: "rgba(255,255,255,.12)", color: "#fff",
-                  border: "1px solid rgba(255,255,255,.2)", borderRadius: 999,
-                  padding: "5px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                  background: "rgba(255,255,255,.08)", color: "#fff",
+                  border: "1px solid rgba(255,255,255,.15)", borderRadius: 999,
+                  padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                   transition: "background .15s ease",
-                  maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}
-                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,.22)"}
-                onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,.12)"}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,.18)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,.08)"}
                 title={ex}
               >
-                {ex.length > 48 ? ex.slice(0, 48) + "…" : ex}
+                {ex}
               </button>
             ))}
           </div>
@@ -831,26 +929,26 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
 
       {/* ── AI Parse Result Banner ── */}
       {hasQuery && signals && (
-        <div style={{ marginTop: 14, background: T.purpleSoft, border: `1px solid ${T.purple}33`, borderRadius: 12, padding: "10px 16px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: T.purple }}>✦ AI understood:</span>
-          {signals.matchedTypes.length > 0 && <Pill bg={T.purple} color="#fff">{signals.matchedTypes.join(", ")}</Pill>}
-          {signals.district && <Pill bg={T.mint} color={T.green}>📍 {signals.district.replace(/\b\w/g, c => c.toUpperCase())}</Pill>}
-          {signals.maxPrice && <Pill bg={T.goldSoft} color="#8A6D0B">≤ {fmtN(signals.maxPrice, cur)}</Pill>}
-          {signals.quantity && <Pill bg={T.purpleSoft} color={T.purple} border={T.purple}>{signals.quantity} plots</Pill>}
+        <div style={{ marginTop: 14, background: T.mint, border: `1px solid ${T.green}33`, borderRadius: 12, padding: "10px 16px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: T.green }}>✦ AI understood:</span>
+          {signals.matchedTypes.length > 0 && <Pill bg={T.green} color="#fff">{signals.matchedTypes.join(", ")}</Pill>}
+          {signals.district && <Pill bg={T.mint} color={T.green} border={T.green}>📍 {signals.district.replace(/\b\w/g, c => c.toUpperCase())}</Pill>}
+          {signals.maxPrice && <Pill bg={T.goldSoft} color={T.gold}>≤ {fmtN(signals.maxPrice, cur)}</Pill>}
+          {signals.quantity && <Pill bg={T.mint} color={T.green} border={T.green}>{signals.quantity} plots</Pill>}
           {signals.purposes.length > 0 && <Pill bg={T.tealSoft} color={T.teal}>{signals.purposes[0]}</Pill>}
           <span style={{ fontSize: 12, color: T.sub }}>— {results.length} listing{results.length !== 1 ? "s" : ""} ranked by relevance</span>
         </div>
       )}
 
       {/* ── Category filter chips ── */}
-      <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 12, color: T.sub, fontWeight: 600 }}>Browse:</span>
         {[
-          { id: "all", label: "🔍 All Categories", color: T.ink },
-          { id: "residential", label: "🏠 Residential", color: T.green },
-          { id: "commercial", label: "🏢 Commercial", color: T.teal },
-          { id: "land", label: "🌍 Land & Estates", color: T.purple },
-        ].map(({ id, label, color }) => {
+          { id: "all", label: "🔍 All Categories" },
+          { id: "residential", label: "🏠 Residential" },
+          { id: "commercial", label: "🏢 Commercial" },
+          { id: "land", label: "🌍 Land & Estates" },
+        ].map(({ id, label }) => {
           const active = groupFilter === id;
           return (
             <button
@@ -858,7 +956,7 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
               onClick={() => setGroupFilter(id)}
               style={{
                 border: active ? "none" : `1.5px solid ${T.line}`,
-                background: active ? color : T.card,
+                background: active ? T.green : T.card,
                 color: active ? "#fff" : T.sub,
                 borderRadius: 999, padding: "7px 16px",
                 fontSize: 12.5, fontWeight: 700, cursor: "pointer",
@@ -883,7 +981,7 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
           { label: "AI-Matched Today", value: "347" },
         ].map(({ label, value }) => (
           <div key={label} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", textAlign: "center" }}>
-            <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.purple }}>{value}</div>
+            <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.green }}>{value}</div>
             <div style={{ fontSize: 11, color: T.sub, fontWeight: 600, marginTop: 2 }}>{label}</div>
           </div>
         ))}
@@ -901,15 +999,17 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
               return (
                 <div key={group} style={{ marginTop: 28 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                    <div style={{ height: 2, width: 28, background: group === "residential" ? T.green : group === "commercial" ? T.teal : T.purple, borderRadius: 2 }} />
+                    <div style={{ height: 2, width: 28, background: T.green, borderRadius: 2 }} />
                     <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17, color: T.ink }}>
                       {GROUP_LABELS[group]}
                     </div>
                     <div style={{ height: 1, flex: 1, background: T.line }} />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
                     {groupListings.map(l => (
-                      <ListingCard key={l.id} listing={l} cur={cur} onOpen={setModal} showScore={false} />
+                      <div key={l.id}>
+                        <ListingCard listing={l} cur={cur} onOpen={setModal} showScore={false} />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -920,9 +1020,11 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
               <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 10 }}>
                 Results ranked by AI relevance score — highest match first
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
                 {results.filter(l => l._score == null || l._score >= 20).map(l => (
-                  <ListingCard key={l.id} listing={l} cur={cur} onOpen={setModal} showScore={true} />
+                  <div key={l.id}>
+                    <ListingCard listing={l} cur={cur} onOpen={setModal} showScore={true} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -935,7 +1037,7 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
           <div>Try broadening your search — remove the price limit or try a different district.</div>
           <button
             onClick={() => { setQuery(""); setSubmitted(""); setGroupFilter("all"); }}
-            style={{ marginTop: 14, background: T.purple, color: "#fff", border: "none", borderRadius: 10, padding: "9px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+            style={{ marginTop: 14, background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "9px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
           >
             Show all listings
           </button>
@@ -950,7 +1052,7 @@ export default function Marketplace({ cur, onWhatsAppOpen }) {
         position: "relative", overflow: "hidden",
         boxShadow: "0 10px 32px rgba(12,43,31,0.15)",
       }}>
-        <div style={{ position: "absolute", right: -40, top: -40, width: 200, height: 200, borderRadius: "50%", background: "rgba(107,63,160,.12)" }} />
+        <div style={{ position: "absolute", right: -40, top: -40, width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.02)" }} />
         <div style={{ position: "relative", zIndex: 1, display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 10 }}>Are You Selling?</div>
