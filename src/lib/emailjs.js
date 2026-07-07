@@ -23,7 +23,7 @@ const TEMPLATE_GUEST      = "template_guest_booking"; // guest confirmation temp
 const TEMPLATE_HOST       = "template_host_alert";    // host new-booking alert template
 
 // Host email that receives all booking alerts
-const HOST_EMAIL = "host@thelandlord.ai";
+const HOST_EMAIL = "info@thelandlordproperty.com";
 
 const IS_DEMO = EMAILJS_PUBLIC_KEY === "YOUR_PUBLIC_KEY";
 
@@ -54,7 +54,7 @@ export async function sendBookingConfirmation(booking, unit, guestEmail = "guest
     nightly_rate:      fmtNGN(unit?.nightly || 0),
     confirmation_code: booking.id?.toUpperCase(),
     platform_name:     "The Landlord Property",
-    support_email:     "support@thelandlord.ai",
+    support_email:     "info@thelandlordproperty.com",
   };
 
   if (IS_DEMO) {

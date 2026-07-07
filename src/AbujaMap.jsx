@@ -66,12 +66,18 @@ function getPinColor(trust, titleGrade) {
 }
 
 /* ── Main component ── */
-export default function AbujaMap({ deals = [], onOpenDeal }) {
+export default function AbujaMap({ deals = [], onOpenDeal, highlightedDealId }) {
   const mapRef    = useRef(null);
   const leafletRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(null);
 
+  // Caching Leaflet instance, layer group, and markers mapping
+  const LRef = useRef(null);
+  const markersLayerRef = useRef(null);
+  const markersRef = useRef({});
+
+  // Effect 1: Map Initialization (Mounting tile layer once)
   useEffect(() => {
     let map = null;
 
@@ -79,6 +85,7 @@ export default function AbujaMap({ deals = [], onOpenDeal }) {
       try {
         // Dynamic import to avoid SSR issues
         const L = (await import("leaflet")).default;
+        LRef.current = L;
 
         if (leafletRef.current) return; // already initialised
         if (!mapRef.current) return;
@@ -107,73 +114,8 @@ export default function AbujaMap({ deals = [], onOpenDeal }) {
           attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         }).addTo(map);
 
-        // Add a marker for each deal
-        deals.forEach((deal) => {
-          const coords = DISTRICT_COORDS[deal.district];
-          if (!coords) return;
-
-          const pinColor = getPinColor(deal.trust, deal.titleGrade);
-          const disc = Math.round(((deal.market - deal.asking) / deal.market) * 100);
-
-          // Jitter coords slightly if multiple deals in same district
-          const jitter = () => (Math.random() - 0.5) * 0.004;
-          const pos = [coords[0] + jitter(), coords[1] + jitter()];
-
-          const icon = L.icon({
-            iconUrl:     makePinSVG(pinColor, deal.trust),
-            iconSize:    [36, 44],
-            iconAnchor:  [18, 44],
-            popupAnchor: [0, -44],
-          });
-
-          const marker = L.marker(pos, { icon }).addTo(map);
-
-          // Popup HTML
-          const popupHtml = `
-            <div style="font-family:'Instrument Sans',system-ui,sans-serif;width:220px;padding:4px 2px;">
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
-                          color:${pinColor};margin-bottom:5px;">
-                📍 ${deal.district} · ${deal.type}
-              </div>
-              <div style="font-size:13px;font-weight:700;color:${T.ink};line-height:1.3;margin-bottom:6px;">
-                ${deal.name}
-              </div>
-              <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px;">
-                <span style="font-size:16px;font-weight:800;color:${T.ink};">${fmtN(deal.asking)}</span>
-                <span style="font-size:11px;color:${T.sub};text-decoration:line-through;">${fmtN(deal.market)}</span>
-              </div>
-              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
-                <span style="background:${T.amber};color:#fff;border-radius:999px;
-                             font-size:10px;font-weight:700;padding:2px 8px;">
-                  −${disc}% below market
-                </span>
-                <span style="background:${T.mint};color:${T.green};border-radius:999px;
-                             font-size:10px;font-weight:700;padding:2px 8px;">
-                  Trust ${deal.trust}/100
-                </span>
-              </div>
-              <div style="font-size:11px;color:${T.amber};font-weight:600;margin-bottom:8px;">
-                ⏱ ${deal.urgency}
-              </div>
-              <button
-                id="map-open-deal-${deal.id}"
-                style="width:100%;background:${T.green};color:#fff;border:none;border-radius:8px;
-                       padding:8px;font-weight:700;font-size:12px;cursor:pointer;">
-                📷 View Deal →
-              </button>
-            </div>`;
-
-          const popup = L.popup({ maxWidth: 240, minWidth: 220 }).setContent(popupHtml);
-          marker.bindPopup(popup);
-
-          // Wire popup button to onOpenDeal
-          marker.on("popupopen", () => {
-            setTimeout(() => {
-              const btn = document.getElementById(`map-open-deal-${deal.id}`);
-              if (btn) btn.onclick = () => { onOpenDeal && onOpenDeal(deal); marker.closePopup(); };
-            }, 50);
-          });
-        });
+        // Initialize LayerGroup to manage markers reactively
+        markersLayerRef.current = L.layerGroup().addTo(map);
 
         setMapReady(true);
       } catch (err) {
@@ -191,6 +133,108 @@ export default function AbujaMap({ deals = [], onOpenDeal }) {
       }
     };
   }, []); // Only run once on mount
+
+  // Effect 2: Redraw markers when deals or mapReady changes
+  useEffect(() => {
+    if (!mapReady || !leafletRef.current || !markersLayerRef.current || !LRef.current) return;
+
+    const L = LRef.current;
+    const markersLayer = markersLayerRef.current;
+
+    // Clear old markers
+    markersLayer.clearLayers();
+    markersRef.current = {};
+
+    deals.forEach((deal) => {
+      const coords = DISTRICT_COORDS[deal.district];
+      if (!coords) return;
+
+      const pinColor = getPinColor(deal.trust, deal.titleGrade);
+      const askingPrice = deal.askingPrice || deal.asking || 0;
+      const marketValue = deal.marketValue || deal.market || 0;
+      const disc = marketValue ? Math.round(((marketValue - askingPrice) / marketValue) * 100) : 0;
+
+      // Deterministic jitter based on deal.id string hash
+      const hash = String(deal.id).split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const jitterX = ((hash % 100) / 100 - 0.5) * 0.005;
+      const jitterY = (((hash * 7) % 100) / 100 - 0.5) * 0.005;
+      const pos = [coords[0] + jitterX, coords[1] + jitterY];
+
+      const icon = L.icon({
+        iconUrl:     makePinSVG(pinColor, deal.trust),
+        iconSize:    [36, 44],
+        iconAnchor:  [18, 44],
+        popupAnchor: [0, -44],
+      });
+
+      const marker = L.marker(pos, { icon }).addTo(markersLayer);
+      markersRef.current[deal.id] = marker;
+
+      // Popup HTML
+      const popupHtml = `
+        <div style="font-family:'Instrument Sans',system-ui,sans-serif;width:220px;padding:4px 2px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
+                      color:${pinColor};margin-bottom:5px;">
+            📍 ${deal.district} · ${deal.type}
+          </div>
+          <div style="font-size:13px;font-weight:700;color:${T.ink};line-height:1.3;margin-bottom:6px;">
+            ${deal.name || deal.title || "Distress Deal"}
+          </div>
+          <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px;">
+            <span style="font-size:16px;font-weight:800;color:${T.ink};">${fmtN(askingPrice)}</span>
+            ${marketValue > askingPrice ? `<span style="font-size:11px;color:${T.sub};text-decoration:line-through;">${fmtN(marketValue)}</span>` : ""}
+          </div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
+            ${disc > 0 ? `
+            <span style="background:${T.amber};color:#fff;border-radius:999px;
+                         font-size:10px;font-weight:700;padding:2px 8px;">
+              −${disc}% below market
+            </span>` : ""}
+            <span style="background:${T.mint};color:${T.green};border-radius:999px;
+                         font-size:10px;font-weight:700;padding:2px 8px;">
+              Trust ${deal.trust || 80}/100
+            </span>
+          </div>
+          <div style="font-size:11px;color:${T.amber};font-weight:600;margin-bottom:8px;">
+            ⏱ ${deal.urgency || "Relocation liquidating asset"}
+          </div>
+          <button
+            id="map-open-deal-${deal.id}"
+            style="width:100%;background:${T.green};color:#fff;border:none;border-radius:8px;
+                   padding:8px;font-weight:700;font-size:12px;cursor:pointer;">
+            📷 View Deal →
+          </button>
+        </div>`;
+
+      const popup = L.popup({ maxWidth: 240, minWidth: 220 }).setContent(popupHtml);
+      marker.bindPopup(popup);
+
+      // Wire popup button to onOpenDeal
+      marker.on("popupopen", () => {
+        setTimeout(() => {
+          const btn = document.getElementById(`map-open-deal-${deal.id}`);
+          if (btn) btn.onclick = () => { onOpenDeal && onOpenDeal(deal); marker.closePopup(); };
+        }, 50);
+      });
+    });
+  }, [deals, mapReady]);
+
+  // Effect 3: Handle highlighted deal updates (panning and opening popup)
+  useEffect(() => {
+    if (!mapReady || !leafletRef.current || !highlightedDealId || !markersRef.current) return;
+
+    const marker = markersRef.current[highlightedDealId];
+    if (marker) {
+      const map = leafletRef.current;
+      const latLng = marker.getLatLng();
+      
+      // Center the map at the marker's coordinate and zoom in slightly
+      map.setView(latLng, 14, { animate: true });
+      
+      // Open the marker's info popup
+      marker.openPopup();
+    }
+  }, [highlightedDealId, mapReady]);
 
   if (mapError) {
     return (

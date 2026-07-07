@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { dataConnect } from "./lib/firebase";
+import { dataConnect, ai, aiModel } from "./lib/firebase";
+import { getGenerativeModel } from "firebase/ai";
 import { listAllProperties, createBooking } from "./lib/dataconnect";
 import { sendBookingConfirmation, sendHostAlert } from "./lib/emailjs";
 
@@ -375,6 +376,14 @@ function BookingCalendar({ unit, usingEmulator, onBookingConfirmed, activeBookin
   );
 }
 
+// Dedicated model for structured JSON shortlet pricing recommendations
+const pricingModel = getGenerativeModel(ai, {
+  model: "gemini-3.5-flash",
+  generationConfig: {
+    responseMimeType: "application/json",
+  }
+});
+
 export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
   // Local auth simulation states
   const [currentUser, setCurrentUser] = useState(null);
@@ -392,6 +401,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
   const [myUnits, setMyUnits] = useState(MOCK_UNITS);
   const [hostPostMode, setHostPostMode] = useState(false);
   const [newUnitForm, setNewUnitForm] = useState({ name: "", district: "Jabi", nightly: "", wifi: "", features: "" });
+  const [uploadedImages, setUploadedImages] = useState([]);
   const [kycSimulating, setKycSimulating] = useState(false);
 
   // Booking state
@@ -420,20 +430,34 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
     setPricingLoading(true);
     setPricingData(null);
     try {
-      const res = await fetch('/api/pricing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          propertyName: unit.name,
-          district: unit.district,
-          baseNightly: unit.nightly,
-          currentOccupancy: unit.occ,
-          features: unit.features,
-        }),
-      });
-      const data = await res.json();
+      const prompt = `You are a Nigerian shortlet pricing analyst for The Landlord Property in Abuja.
+Given the property details, generate AI-optimised nightly rate recommendations.
+
+Property:
+- District: ${unit.district || 'Jabi'}
+- Base nightly rate: ₦${Number(unit.nightly || 0).toLocaleString()}
+- Current occupancy: ${Math.round((unit.occ || 0.7) * 100)}%
+- Features: ${(unit.features || []).join(', ') || 'AC, Generator, Smart lock'}
+- Month: ${new Date().toLocaleString('en-NG', { month: 'long' })}
+
+Return valid JSON ONLY:
+{
+  "recommendations": [
+    { "period": "string", "rate": number, "reasoning": "string" },
+    { "period": "string", "rate": number, "reasoning": "string" },
+    { "period": "string", "rate": number, "reasoning": "string" },
+    { "period": "string", "rate": number, "reasoning": "string" }
+  ],
+  "projectedMonthlyNet": number,
+  "insight": "string (2 sentences on market conditions for this district this month)"
+}`;
+
+      const result = await pricingModel.generateContent(prompt);
+      const text = result.response.text();
+      const data = JSON.parse(text);
       setPricingData(data);
-    } catch {
+    } catch (err) {
+      console.error("[Firebase AI] Client-side pricing error:", err);
       setPricingData({ error: true });
     } finally {
       setPricingLoading(false);
@@ -497,6 +521,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
   const handlePostApartment = (e) => {
     e.preventDefault();
     if (!newUnitForm.name || !newUnitForm.nightly) return;
+    if (uploadedImages.length < 3 || uploadedImages.length > 6) return;
     const newUnit = {
       id: "u-" + Date.now(),
       name: newUnitForm.name,
@@ -506,13 +531,15 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
       monthNet: Number(newUnitForm.nightly) * 30 * 0.70,
       rating: 5.0,
       code: "NEW-" + Math.floor(Math.random() * 900),
-      wifi: newUnitForm.wifi || "SSID / KEY",
+      wifi: "Access details provided upon booking confirmation",
       lockStatus: "Locked (Battery 100%)",
       lockIp: "192.168.100.80",
-      features: newUnitForm.features ? newUnitForm.features.split(",").map(f => f.trim()) : ["AC", "Generators"]
+      features: newUnitForm.features ? newUnitForm.features.split(",").map(f => f.trim()) : ["AC", "Generators"],
+      images: uploadedImages
     };
     setMyUnits(prev => [...prev, newUnit]);
     setNewUnitForm({ name: "", district: "Jabi", nightly: "", wifi: "", features: "" });
+    setUploadedImages([]);
     setHostPostMode(false);
   };
 
@@ -522,22 +549,27 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
     setGuestMessages(prev => [...prev, { sender: "guest", text: txt }]);
     setGuestChatInp("");
     setGuestChatTyping(true);
-    guestChatHistoryRef.current = [...guestChatHistoryRef.current, { role: 'user', text: txt }];
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: txt,
-          history: guestChatHistoryRef.current.slice(-10),
-          context: 'Guest is staying at a shortlet apartment in Abuja. Help with WiFi, power, check-in/out, and local tips.',
-        }),
+      // Map history to the role/parts format required by firebase/ai
+      const chatHistory = guestMessages.map(m => ({
+        role: m.sender === "guest" ? "user" : "model",
+        parts: [{ text: m.text }]
+      }));
+
+      // Start client-side chat session with history
+      const chat = aiModel.startChat({
+        history: chatHistory,
       });
-      const data = await res.json();
-      const reply = data.reply || "Let me check that with the manager — please try again.";
-      guestChatHistoryRef.current = [...guestChatHistoryRef.current, { role: 'model', text: reply }];
+
+      // Send message to client-side generative model with system context guidelines
+      const result = await chat.sendMessage(
+        `[System context: Guest is staying at a shortlet apartment in Abuja. Help with WiFi, power, check-in/out, and local tips.] ${txt}`
+      );
+      const reply = result.response.text();
+
       setGuestMessages(prev => [...prev, { sender: "ai", text: reply }]);
-    } catch {
+    } catch (err) {
+      console.error("[Firebase AI] Guest chat failed:", err);
       setGuestMessages(prev => [...prev, { sender: "ai", text: "Network error — please check your connection and try again. 🙏" }]);
     } finally {
       setGuestChatTyping(false);
@@ -553,7 +585,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
     // Send confirmation email to guest + host alert
     try {
       const unit = myUnits.find(u => u.id === booking.propertyId);
-      const guestEmail = currentUser?.email || "guest@thelandlord.ai";
+      const guestEmail = currentUser?.email || "guest@thelandlordproperty.com";
       await Promise.all([
         sendBookingConfirmation(booking, unit, guestEmail),
         sendHostAlert(booking, unit),
@@ -609,10 +641,10 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.paper, padding: "12px 18px", borderRadius: 14, border: `1px solid ${T.line}`, flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", gap: 6 }}>
           {[
-            ["browse", "🔍", "Browse Apartments"],
-            ["host", "📊", "Host Console"],
-            ...(isGuest ? [["guest", "🔑", "Guest Portal"]] : []),
-          ].map(([key, icon, label]) => (
+            ["browse", "Browse Apartments"],
+            ["host", "Host Console"],
+            ...(isGuest ? [["guest", "Guest Portal"]] : []),
+          ].map(([key, label]) => (
             <button
               key={key}
               id={`shortlet-tab-${key}`}
@@ -628,7 +660,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
                 transition: "all .15s ease",
               }}
             >
-              {icon} {label}
+              {label}
               {key === "guest" && myBookings.length > 0 && (
                 <span style={{ background: T.gold, color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 9, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", marginLeft: 6 }}>
                   {myBookings.length}
@@ -640,7 +672,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
         {loggedIn ? (
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>
-              👤 {currentUser.email.split("@")[0]} ({currentUser.role === "host" ? "Host" : "Guest"})
+              {currentUser.email.split("@")[0]} ({currentUser.role === "host" ? "Host" : "Guest"})
             </span>
             <button
               onClick={() => { setCurrentUser(null); setActiveTab("browse"); setMyBookings([]); }}
@@ -681,24 +713,42 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
 
           {/* Property Cards */}
           <div className="shortlet-browse-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 18 }}>
-            {myUnits.map(u => (
-              <div key={u.id} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                {/* Card header */}
-                <div style={{ background: T.mint, padding: "16px 18px 14px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <CategoryIcon size={15} />
-                      <Pill bg={T.card} color={T.green} border={T.line}>Shortlet</Pill>
-                      <Pill bg={T.goldSoft} color={T.gold}>★ {u.rating}</Pill>
+            {myUnits.map(u => {
+              const hasImages = u.images && u.images.length > 0;
+              const displayImg = hasImages ? u.images[0] : "/default_apartment.png";
+              return (
+                <div key={u.id} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                  {/* Premium Image Header */}
+                  <div style={{ position: "relative", height: 160, overflow: "hidden" }}>
+                    <img
+                      src={displayImg}
+                      alt={u.name}
+                      style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform .3s ease" }}
+                      onMouseEnter={e => e.currentTarget.style.transform = "scale(1.05)"}
+                      onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+                    />
+                    <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 6 }}>
+                      <Pill bg="rgba(255,255,255,0.9)" color={T.green} border="rgba(0,0,0,0.05)">Shortlet</Pill>
+                      <Pill bg="rgba(201,162,39,0.95)" color="#fff">★ {u.rating}</Pill>
                     </div>
-                    <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17, color: T.ink, margin: 0 }}>{u.name}</h3>
-                    <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>📍 {u.district}, Abuja</div>
+                    {hasImages && (
+                      <span style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.7)", color: "#fff", padding: "4px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700 }}>
+                        1 of {u.images.length} Photos
+                      </span>
+                    )}
                   </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: T.green }}>{fmtN(u.nightly, cur)}</div>
-                    <div style={{ fontSize: 11, color: T.sub }}>per night</div>
+
+                  {/* Card header */}
+                  <div style={{ padding: "16px 18px 14px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: `1px solid ${T.line}` }}>
+                    <div>
+                      <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17, color: T.ink, margin: 0 }}>{u.name}</h3>
+                      <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>📍 {u.district}, Abuja</div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: T.green }}>{fmtN(u.nightly, cur)}</div>
+                      <div style={{ fontSize: 11, color: T.sub }}>per night</div>
+                    </div>
                   </div>
-                </div>
 
                 {/* Features */}
                 <div style={{ padding: "12px 18px", flex: 1 }}>
@@ -712,123 +762,233 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
                   </div>
                 </div>
 
-                {/* Calendar CTA */}
-                <div style={{ padding: "12px 18px 16px", borderTop: `1px solid ${T.line}` }}>
-                  <button
-                    id={`view-calendar-${u.id}`}
-                    onClick={() => {
-                      if (!loggedIn) { setSelectedUnitForCal(u); triggerAuthGate("guest", "view_calendar"); }
-                      else if (currentUser.role !== "guest") { setSelectedUnitForCal(u); triggerAuthGate("guest", "view_calendar"); }
-                      else { setSelectedUnitForCal(u); }
-                    }}
-                    style={{
-                      width: "100%", background: T.green, color: "#fff", border: "none", borderRadius: 10,
-                      padding: "11px", fontWeight: 700, fontSize: 13, cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                      transition: "opacity .15s ease",
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-                    onMouseLeave={e => e.currentTarget.style.opacity = "1"}
-                  >
-                    📅 View Availability & Book
-                  </button>
+                  {/* Calendar CTA */}
+                  <div style={{ padding: "12px 18px 16px", borderTop: `1px solid ${T.line}` }}>
+                    <button
+                      id={`view-calendar-${u.id}`}
+                      onClick={() => {
+                        if (!loggedIn) { setSelectedUnitForCal(u); triggerAuthGate("guest", "view_calendar"); }
+                        else if (currentUser.role !== "guest") { setSelectedUnitForCal(u); triggerAuthGate("guest", "view_calendar"); }
+                        else { setSelectedUnitForCal(u); }
+                      }}
+                      style={{
+                        width: "100%", background: T.green, color: "#fff", border: "none", borderRadius: 10,
+                        padding: "11px", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                        transition: "opacity .15s ease",
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                      onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                    >
+                      View Availability & Book
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
 
       {/* ══ TAB 2: HOST CONSOLE ══ */}
-      {activeTab === "host" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {!isVerifiedHost ? (
-            <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 20, padding: 32, textAlign: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.02)" }}>
-              <div style={{ width: 64, height: 64, borderRadius: "50%", background: T.riskSoft, color: T.risk, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 16 }}>⚠️</div>
-              <h2 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, color: T.ink, margin: "0 0 10px 0" }}>Host Verification Required</h2>
-              <p style={{ color: T.sub, fontSize: 14, maxWidth: 500, margin: "0 auto 20px", lineHeight: 1.5 }}>
-                To comply with FCT security guidelines, all hosts must complete identity validation (NIN & BVN matching) before they can post shortlet apartments or sync calendars.
-              </p>
-              <button
-                onClick={handleSimulateKyc}
-                disabled={kycSimulating}
-                style={{ background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "12px 24px", fontWeight: 700, fontSize: 13.5, cursor: kycSimulating ? "not-allowed" : "pointer" }}
-              >
-                {kycSimulating ? "Validating with Identity Server..." : "⚡ Complete 2-Min NIN/BVN KYC Check"}
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              {/* Header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-                <div>
-                  <h2 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.ink, margin: 0 }}>📊 Host Operations Console</h2>
-                  <p style={{ fontSize: 12, color: T.sub, margin: "3px 0 0 0" }}>
-                    {usingEmulator ? "🟢 Live database connected" : "📦 Local mode — start emulators for live sync"}
-                  </p>
-                </div>
+      {/* ══ TAB 2: HOST CONSOLE ══ */}
+      {activeTab === "host" && (() => {
+        const activeBookingsCount = myBookings.filter(b => b.status === "Confirmed").length;
+        const hasBookings = activeBookingsCount > 0;
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {!isVerifiedHost ? (
+              <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 20, padding: 32, textAlign: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.02)" }}>
+                <div style={{ width: 64, height: 64, borderRadius: "50%", background: T.riskSoft, color: T.risk, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 800, marginBottom: 16, border: `2px solid ${T.risk}` }}>!</div>
+                <h2 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, color: T.ink, margin: "0 0 10px 0" }}>Host Verification Required</h2>
+                <p style={{ color: T.sub, fontSize: 14, maxWidth: 500, margin: "0 auto 20px", lineHeight: 1.5 }}>
+                  To comply with FCT security guidelines, all hosts must complete identity validation (NIN & BVN matching) before they can post shortlet apartments or sync calendars.
+                </p>
                 <button
-                  onClick={() => setHostPostMode(!hostPostMode)}
-                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                  onClick={handleSimulateKyc}
+                  disabled={kycSimulating}
+                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "12px 24px", fontWeight: 700, fontSize: 13.5, cursor: kycSimulating ? "not-allowed" : "pointer" }}
                 >
-                  {hostPostMode ? "✕ Cancel" : "➕ Post New Apartment"}
+                  {kycSimulating ? "Validating with Identity Server..." : "Complete 2-Min NIN/BVN KYC Check"}
                 </button>
               </div>
-
-              {/* Post form */}
-              {hostPostMode && (
-                <div style={{ background: T.card, border: `2px solid ${T.green}33`, borderRadius: 16, padding: 20 }}>
-                  <SectionLabel>Post New Shortlet Apartment</SectionLabel>
-                  <form onSubmit={handlePostApartment} className="host-post-form" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-                    {[
-                      { label: "Apartment Title *", key: "name", type: "text", placeholder: "e.g. Maitama Executive Suite" },
-                      { label: "Nightly Rate (₦) *", key: "nightly", type: "number", placeholder: "85000" },
-                      { label: "WiFi Details (SSID / Password)", key: "wifi", type: "text", placeholder: "Maitama_Suites / pass123" },
-                    ].map(({ label, key, type, placeholder }) => (
-                      <div key={key}>
-                        <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>{label}</label>
-                        <input
-                          type={type} placeholder={placeholder} value={newUnitForm[key]}
-                          onChange={e => setNewUnitForm(prev => ({ ...prev, [key]: e.target.value }))}
-                          required={key === "name" || key === "nightly"}
-                          style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, boxSizing: "border-box", fontSize: 13 }}
-                        />
-                      </div>
-                    ))}
-                    <div>
-                      <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Abuja District</label>
-                      <select value={newUnitForm.district} onChange={e => setNewUnitForm(prev => ({ ...prev, district: e.target.value }))} style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, boxSizing: "border-box", fontSize: 13 }}>
-                        {["Maitama", "Guzape", "Jabi", "Wuse 2", "Gwarinpa", "Katampe"].map(d => <option key={d} value={d}>{d}</option>)}
-                      </select>
-                    </div>
-                    <div style={{ gridColumn: "1/-1" }}>
-                      <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Key Features (comma-separated)</label>
-                      <input type="text" placeholder="Solar backup, Automatic generator, Smart lock" value={newUnitForm.features} onChange={e => setNewUnitForm(prev => ({ ...prev, features: e.target.value }))} style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, boxSizing: "border-box", fontSize: 13 }} />
-                    </div>
-                    <button type="submit" style={{ gridColumn: "1/-1", background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 700, fontSize: 13, cursor: "pointer", marginTop: 4 }}>
-                      🚀 Publish verified apartment to marketplace
-                    </button>
-                  </form>
-                </div>
-              )}
-
-              {/* Analytics */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
-                {[
-                  { title: "Projected Revenue", value: "₦2.9m/mo", sub: "Based on active demand curves", icon: "📈" },
-                  { title: "Overall Occupancy", value: "77.5%", sub: "AI prediction: +4% next week", icon: "🏡" },
-                  { title: "Smart Check-in logs", value: "100% matched", sub: "NIN/BVN gate validation active", icon: "✅" },
-                  { title: "Active Bookings", value: String(myBookings.filter(b => b.status === "Confirmed").length), sub: "Guest reservations this month", icon: "📅" },
-                ].map((item, idx) => (
-                  <div key={idx} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 18 }}>
-                    <div style={{ fontSize: 22, marginBottom: 6 }}>{item.icon}</div>
-                    <div style={{ fontSize: 10, color: T.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>{item.title}</div>
-                    <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 26, color: T.green, marginTop: 4 }}>{item.value}</div>
-                    <div style={{ fontSize: 12, color: T.sub, marginTop: 2 }}>{item.sub}</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                {/* Dev environment warning banner */}
+                {usingEmulator && (
+                  <div style={{
+                    background: "#FFF9E6",
+                    border: "1px solid #FFE49E",
+                    color: "#855800",
+                    padding: "10px 14px",
+                    borderRadius: 12,
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                  }}>
+                    Developer Mode: Connected to local database emulator. Changes are local and will sync in real-time.
                   </div>
-                ))}
-              </div>
+                )}
+
+                {/* Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <h2 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: T.ink, margin: 0 }}>Host Operations Console</h2>
+                    <p style={{ fontSize: 12, color: T.sub, margin: "3px 0 0 0" }}>
+                      Manage bookings, verify occupancy, and optimize rates
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setHostPostMode(!hostPostMode)}
+                    style={{ background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                  >
+                    {hostPostMode ? "Cancel" : "Post New Apartment"}
+                  </button>
+                </div>
+
+                {/* Post form */}
+                {hostPostMode && (
+                  <div style={{ background: T.card, border: `2px solid ${T.green}33`, borderRadius: 16, padding: 20 }}>
+                    <SectionLabel>Post New Shortlet Apartment</SectionLabel>
+                    <form onSubmit={handlePostApartment} className="host-post-form" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+                      {[
+                        { label: "Apartment Title *", key: "name", type: "text", placeholder: "e.g. Maitama Executive Suite", required: true },
+                        { label: "Nightly Rate (₦) *", key: "nightly", type: "number", placeholder: "85000", required: true },
+                      ].map(({ label, key, type, placeholder, required }) => (
+                        <div key={key}>
+                          <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>{label}</label>
+                          <input
+                            type={type} placeholder={placeholder} value={newUnitForm[key]}
+                            onChange={e => setNewUnitForm(prev => ({ ...prev, [key]: e.target.value }))}
+                            required={required}
+                            style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, boxSizing: "border-box", fontSize: 13 }}
+                          />
+                        </div>
+                      ))}
+                      <div>
+                        <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Abuja District *</label>
+                        <select value={newUnitForm.district} onChange={e => setNewUnitForm(prev => ({ ...prev, district: e.target.value }))} style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, boxSizing: "border-box", fontSize: 13 }}>
+                          {["Maitama", "Guzape", "Jabi", "Wuse 2", "Gwarinpa", "Katampe"].map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 4 }}>Key Features (comma-separated)</label>
+                        <input type="text" placeholder="e.g. Solar backup, Automatic generator, Smart lock" value={newUnitForm.features} onChange={e => setNewUnitForm(prev => ({ ...prev, features: e.target.value }))} style={{ width: "100%", padding: 10, border: `1px solid ${T.line}`, borderRadius: 8, boxSizing: "border-box", fontSize: 13 }} />
+                      </div>
+
+                      {/* Apartment Photos (3-6 required) */}
+                      <div style={{ gridColumn: "1/-1", marginTop: 6 }}>
+                        <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, marginBottom: 6 }}>
+                          Apartment Photos * (Upload 3 to 6 images)
+                        </label>
+                        
+                        <div
+                          style={{
+                            border: `2px dashed ${uploadedImages.length >= 3 && uploadedImages.length <= 6 ? T.green : T.line}`,
+                            borderRadius: 12,
+                            padding: "20px 16px",
+                            textAlign: "center",
+                            background: T.paper,
+                            cursor: "pointer",
+                            transition: "all .15s ease",
+                          }}
+                          onClick={() => document.getElementById("shortlet-image-upload").click()}
+                        >
+                          <input
+                            id="shortlet-image-upload"
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files || []);
+                              const urls = files.map(file => URL.createObjectURL(file));
+                              setUploadedImages(prev => {
+                                const combined = [...prev, ...urls];
+                                return combined.slice(0, 6);
+                              });
+                            }}
+                            style={{ display: "none" }}
+                          />
+                          <div style={{ fontSize: 24, color: T.green, marginBottom: 6 }}>📸</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>Drag & drop or click to upload</div>
+                          <div style={{ fontSize: 11, color: T.sub, marginTop: 4 }}>JPEG, PNG up to 10MB (Select multiple files)</div>
+                        </div>
+
+                        {uploadedImages.length > 0 && (
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+                            {uploadedImages.map((url, idx) => (
+                              <div key={idx} style={{ position: "relative", width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.line}` }}>
+                                <img src={url} alt={`Preview ${idx + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUploadedImages(prev => prev.filter((_, i) => i !== idx));
+                                  }}
+                                  style={{
+                                    position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,0.6)", color: "#fff",
+                                    border: "none", borderRadius: "50%", width: 16, height: 16, fontSize: 10, cursor: "pointer",
+                                    display: "flex", alignItems: "center", justifyContent: "center", padding: 0
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ fontSize: 11.5, color: uploadedImages.length >= 3 && uploadedImages.length <= 6 ? T.green : T.risk, marginTop: 6, fontWeight: 600 }}>
+                          {uploadedImages.length < 3 
+                            ? `Please upload at least 3 images to verify the property layout (${uploadedImages.length} of 3 uploaded)`
+                            : `Photo requirement satisfied (${uploadedImages.length} of 6 images)`
+                          }
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={uploadedImages.length < 3 || uploadedImages.length > 6}
+                        style={{
+                          gridColumn: "1/-1",
+                          background: uploadedImages.length < 3 || uploadedImages.length > 6 ? T.sub : T.green,
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: 10,
+                          padding: 12,
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: uploadedImages.length < 3 || uploadedImages.length > 6 ? "not-allowed" : "pointer",
+                          marginTop: 4
+                        }}
+                      >
+                        Submit shortlet for compliance review
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* Analytics */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
+                  {[
+                    { title: "Projected Revenue", value: hasBookings ? "₦2.9m/mo" : "₦0.00", sub: hasBookings ? "Based on active demand curves" : "Awaiting first active booking" },
+                    { title: "Overall Occupancy", value: hasBookings ? "77.5%" : "0.0%", sub: hasBookings ? "AI prediction: +4% next week" : "Awaiting occupancy logs" },
+                    { title: "Smart Check-in logs", value: hasBookings ? "100% matched" : "0 matched", sub: hasBookings ? "NIN/BVN gate validation active" : "Awaiting check-in events" },
+                    { title: "Active Bookings", value: String(activeBookingsCount), sub: "Guest reservations this month" },
+                  ].map((item, idx) => (
+                    <div key={idx} style={{
+                      background: T.card,
+                      border: `1px solid ${T.line}`,
+                      borderRadius: 14,
+                      padding: 18,
+                      borderTop: `3px solid ${idx === 3 ? T.gold : T.green}`
+                    }}>
+                      <div style={{ fontSize: 10, color: T.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>{item.title}</div>
+                      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 26, color: T.green, marginTop: 4 }}>{item.value}</div>
+                      <div style={{ fontSize: 12, color: T.sub, marginTop: 2 }}>{item.sub}</div>
+                    </div>
+                  ))}
+                </div>
 
               {/* Pricing optimizer + reviews */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
@@ -921,7 +1081,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
             </div>
           )}
         </div>
-      )}
+      ) })()}
 
       {/* ══ TAB 3: GUEST PORTAL ══ */}
       {activeTab === "guest" && isGuest && (
@@ -932,14 +1092,14 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
 
             {myBookings.length === 0 ? (
               <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 24, textAlign: "center" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+                <div style={{ width: 48, height: 48, borderRadius: "50%", background: T.mint, color: T.green, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, margin: "0 auto 12px", border: `2px solid ${T.green}` }}>!</div>
                 <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: T.ink, marginBottom: 8 }}>No Active Reservations</div>
                 <p style={{ fontSize: 13.5, color: T.sub, lineHeight: 1.5, margin: "0 0 20px" }}>Browse our verified shortlet listings and book your stay in seconds.</p>
                 <button
                   onClick={() => setActiveTab("browse")}
                   style={{ background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
                 >
-                  🔍 Browse Apartments
+                  Browse Apartments
                 </button>
               </div>
             ) : (
@@ -966,7 +1126,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
 
                       {unit && (
                         <div style={{ background: T.mint, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: T.green, lineHeight: 1.5 }}>
-                          📶 <b>WiFi:</b> {unit.wifi}
+                          <b>WiFi:</b> {unit.wifi}
                         </div>
                       )}
 
@@ -996,15 +1156,14 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
                   ))}
                   {guestSelfie && guestIdDoc && !kycCheckinDone && (
                     <button
-                      onClick={() => { setKycCheckinDone(true); setTimeout(() => setGuestMessages(m => [...m, { sender: "ai", text: "✅ Identity verified! Your gate access code has been activated. Welcome to your stay!" }]), 1000); }}
+                      onClick={() => { setKycCheckinDone(true); setTimeout(() => setGuestMessages(m => [...m, { sender: "ai", text: "Identity verified! Your gate access code has been activated. Welcome to your stay!" }]), 1000); }}
                       style={{ background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: 11, fontWeight: 700, fontSize: 13, cursor: "pointer", marginTop: 4 }}
                     >
-                      ⚡ Start NIN Matching Check
+                      Start NIN Matching Check
                     </button>
                   )}
                   {kycCheckinDone && (
                     <div style={{ background: T.mint, color: T.green, padding: "10px 14px", borderRadius: 10, fontSize: 12.5, fontWeight: 600, display: "flex", gap: 8 }}>
-                      <span>✅</span>
                       <span>Identity cleared. Check-in processed. Gate compliance access keys activated.</span>
                     </div>
                   )}

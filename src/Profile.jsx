@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { auth, db } from "./lib/firebase";
-import { doc, getDoc, updateDoc, collection, addDoc, serverTimestamp, query, onSnapshot, where, orderBy } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, query, onSnapshot, where, orderBy } from "firebase/firestore";
 
 const T = {
   ink:      "#0C2B1F",
@@ -57,6 +57,147 @@ const Pill = ({ children, bg, color, border }) => (
   </span>
 );
 
+const SignaturePad = ({ onSave, onClear }) => {
+  const canvasRef = React.useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasDrawn, setHasDrawn] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.strokeStyle = T.green;
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = "round";
+  }, []);
+
+  const getCoordinates = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  };
+
+  const startDrawing = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const { x, y } = getCoordinates(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setIsDrawing(true);
+    setHasDrawn(true);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const { x, y } = getCoordinates(e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    if (e.cancelable) e.preventDefault();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clear = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasDrawn(false);
+    if (onClear) onClear();
+  };
+
+  const save = () => {
+    if (!hasDrawn) {
+      alert("Please draw your signature first.");
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL("image/png");
+    if (onSave) onSave(dataUrl);
+  };
+
+  return (
+    <div style={{ maxWidth: 360, margin: "14px 0" }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 8 }}>
+        Sign below to execute the Deed of Assignment:
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={340}
+        height={130}
+        onMouseDown={startDrawing}
+        onMouseMove={draw}
+        onMouseUp={stopDrawing}
+        onMouseLeave={stopDrawing}
+        onTouchStart={startDrawing}
+        onTouchMove={draw}
+        onTouchEnd={stopDrawing}
+        style={{
+          border: `2px dashed ${T.green}`,
+          borderRadius: 12,
+          background: "#fff",
+          cursor: "crosshair",
+          touchAction: "none",
+          display: "block",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+        }}
+      />
+      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+        <button
+          onClick={clear}
+          style={{
+            background: "transparent",
+            border: `1.5px solid ${T.line}`,
+            borderRadius: 8,
+            padding: "8px 14px",
+            fontSize: 12.5,
+            fontWeight: 700,
+            cursor: "pointer",
+            color: T.sub
+          }}
+        >
+          Clear
+        </button>
+        <button
+          onClick={save}
+          style={{
+            background: T.green,
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "8px 16px",
+            fontSize: 12.5,
+            fontWeight: 700,
+            cursor: "pointer",
+            boxShadow: "0 2px 6px rgba(14,90,58,0.2)"
+          }}
+        >
+          Sign & Submit Document
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function Profile({
   user,
   cur,
@@ -74,6 +215,23 @@ export default function Profile({
     const mockKyc = typeof window !== "undefined" && localStorage.getItem(`lp_kyc_${user?.uid}`) === "true";
     return mockKyc ? "buyer" : "saved";
   });
+  const [copiedId, setCopiedId] = useState(false);
+
+  const handleCopyId = () => {
+    if (!user?.uid) return;
+    navigator.clipboard.writeText(user.uid);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
+
+  // Wire submission states
+  const [payBank, setPayBank] = useState("Zenith Bank");
+  const [payTxnRef, setPayTxnRef] = useState("");
+  const [payReceiptName, setPayReceiptName] = useState("");
+  const [paySubmitting, setPaySubmitting] = useState(false);
+
+  // Deed signature execution simulation
+  const [signingEscrowId, setSigningEscrowId] = useState(null);
   const [kycVerified, setKycVerified] = useState(false);
   const [kycSimulating, setKycSimulating] = useState(false);
   const [kycStatus, setKycStatus] = useState(null); // null | "Pending" | "Passed" | "Failed"
@@ -238,9 +396,13 @@ export default function Profile({
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.preferences) {
-          setBuyerPrefs(data.preferences);
+          setBuyerPrefs({
+            budget: data.preferences.budget ?? 120_000_000,
+            preferredDistricts: data.preferences.preferredDistricts ?? ["Jabi", "Guzape"],
+            waAlerts: data.preferences.waAlerts ?? true,
+          });
         }
-        if (data.verified) {
+        if (data.verified || data.kycStatus === "Passed") {
           setKycVerified(true);
           setKycStatus("Passed");
         } else {
@@ -284,7 +446,7 @@ export default function Profile({
     setKycSimulating(true);
     try {
       const userDocRef = doc(db, "users", user.uid);
-      await updateDoc(userDocRef, {
+      await setDoc(userDocRef, {
         kycStatus: "Pending",
         verified: false,
         kycDetails: {
@@ -294,7 +456,7 @@ export default function Profile({
           documentName: docName || "id_scan.png",
           submittedAt: new Date().toISOString()
         }
-      });
+      }, { merge: true });
       if (onToast) onToast("Compliance Details Submitted! Awaiting admin review.");
       setShowKycForm(false);
     } catch (err) {
@@ -310,7 +472,7 @@ export default function Profile({
     setKycSimulating(true);
     try {
       const userDocRef = doc(db, "users", user.uid);
-      await updateDoc(userDocRef, {
+      await setDoc(userDocRef, {
         verified: true,
         kycStatus: "Passed",
         kycDetails: {
@@ -320,7 +482,7 @@ export default function Profile({
           documentName: "bypass_auto_verify.pdf",
           submittedAt: new Date().toISOString()
         }
-      });
+      }, { merge: true });
       localStorage.setItem(`lp_kyc_${user.uid}`, "true");
       setKycVerified(true);
       setKycStatus("Passed");
@@ -450,7 +612,8 @@ export default function Profile({
     if (onToast) onToast("Distress listing submitted! Legal & AGIS verification started.");
   };
 
-  const fmtCurrency = (n) => {
+  const fmtCurrency = (val) => {
+    const n = Number(val || 0);
     if (cur === "USD") {
       const rate = 1550;
       return "$" + Math.round(n / rate).toLocaleString();
@@ -483,58 +646,56 @@ export default function Profile({
     });
     return unsubscribe;
   }, [user]);
-
   const handleEscrowPayment = async (escrow) => {
+    if (!payTxnRef.trim()) {
+      if (onToast) onToast("Please enter a Transaction Reference");
+      return;
+    }
+    setPaySubmitting(true);
     try {
       const escRef = doc(db, "escrows", escrow.id);
-      const payRef = "SIM-WIRE-" + Math.floor(100000 + Math.random() * 900000);
       await updateDoc(escRef, {
-        stage: 2, // Move to Deed Upload
-        paymentStatus: "Paid",
-        paymentRef: payRef,
+        paymentStatus: "Pending Verification",
+        paymentBank: payBank,
+        paymentRef: payTxnRef,
+        paymentReceiptUrl: payReceiptName || "Mock-Receipt-Zenith.pdf",
+        paymentSubmittedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
       await addDoc(collection(db, "activity_logs"), {
         userId: user.uid,
-        action: "escrow_payment",
-        details: `Buyer funded escrow for "${escrow.propertyName}" (Price: ${fmtCurrency(escrow.price)}). Wire ref: ${payRef}`,
+        action: "escrow_payment_submitted",
+        details: `Buyer submitted wire proof for "${escrow.propertyName}" (Ref: ${payTxnRef}).`,
         createdAt: serverTimestamp(),
       });
 
-      await addDoc(collection(db, "notifications"), {
-        userId: user.uid,
-        type: "whatsapp",
-        email: user.email || "",
-        status: "sent",
-        sent: true,
-        title: "Escrow Deposit Verified",
-        message: `🔒 Escrow deposit of ${fmtCurrency(escrow.price)} for "${escrow.propertyName}" has been verified under wire ref: ${payRef}.\n\nNext step: Upload executed deed documents for AGIS search validation.`,
-        read: false,
-        createdAt: serverTimestamp(),
-      });
-
-      if (onToast) onToast("Wire payment simulated successfully! Escrow funded.");
+      if (onToast) onToast("Wire payment proof submitted! Awaiting admin verification.");
+      setPayTxnRef("");
+      setPayReceiptName("");
     } catch (err) {
-      console.error("[Escrow] Payment failed:", err);
-      if (onToast) onToast("Simulation failed. Please try again.");
+      console.error("[Escrow] Payment submit failed:", err);
+      if (onToast) onToast("Submission failed. Please try again.");
+    } finally {
+      setPaySubmitting(false);
     }
   };
 
-  const handleEscrowDeedUpload = async (escrow, fileName) => {
+  const handleEscrowDeedSubmit = async (escrow, signatureDataUrl) => {
     try {
       const escRef = doc(db, "escrows", escrow.id);
       await updateDoc(escRef, {
-        stage: 3, // Move to Release
-        deedUrl: fileName,
+        deedStatus: "Pending Verification",
+        deedUrl: "Executed-Deed.pdf",
+        signatureUrl: signatureDataUrl,
         deedUploadedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
       await addDoc(collection(db, "activity_logs"), {
         userId: user.uid,
-        action: "escrow_deed_uploaded",
-        details: `Deed of assignment "${fileName}" uploaded by buyer for "${escrow.propertyName}".`,
+        action: "escrow_deed_signed",
+        details: `Deed of assignment executed via drawing canvas by buyer for "${escrow.propertyName}".`,
         createdAt: serverTimestamp(),
       });
 
@@ -545,15 +706,15 @@ export default function Profile({
         status: "sent",
         sent: true,
         title: "Deed Verification Pending",
-        message: `📁 Deed document "${fileName}" uploaded successfully for "${escrow.propertyName}". Our team is running document forensics and AGIS verification.\n\nNext step: Release funds upon taking possession.`,
+        message: `Deed document signed successfully for "${escrow.propertyName}". Our team is running document forensics and AGIS verification.\n\nNext step: Release funds upon taking possession.`,
         read: false,
         createdAt: serverTimestamp(),
       });
 
-      if (onToast) onToast("Deed uploaded and registered for verification!");
+      if (onToast) onToast("Deed executed and submitted for AGIS verification!");
     } catch (err) {
-      console.error("[Escrow] Deed upload failed:", err);
-      if (onToast) onToast("Failed to upload deed.");
+      console.error("[Escrow] Deed execution failed:", err);
+      if (onToast) onToast("Failed to execute deed.");
     }
   };
 
@@ -681,8 +842,15 @@ export default function Profile({
             <h1 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 24, margin: 0 }}>
               {user.displayName || (user.email ? user.email.split("@")[0] : "Client")}
             </h1>
-            <div style={{ fontSize: 13, opacity: 0.7, marginTop: 4 }}>
+            <div 
+              onClick={handleCopyId}
+              style={{ fontSize: 13, opacity: 0.7, marginTop: 4, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+              title="Click to copy Account ID"
+            >
               Account ID: {user.uid ? `${user.uid.slice(0, 8)}...` : "Unknown"}
+              <span style={{ fontSize: 11, opacity: 0.8, textDecoration: "underline", color: T.gold, fontWeight: 700 }}>
+                {copiedId ? "Copied" : "Copy"}
+              </span>
             </div>
           </div>
         </div>
@@ -759,7 +927,7 @@ export default function Profile({
                   cursor: "pointer",
                 }}
               >
-                ⚡ Complete KYC Verification
+                Complete KYC Verification
               </button>
             </div>
           )}
@@ -786,7 +954,7 @@ export default function Profile({
               border: profileTab === "buyer" ? "none" : `1px solid ${T.line}`
             }}
           >
-            💼 Buyer Hub & Alerts
+            Buyer Hub & Alerts
           </button>
           <button
             onClick={() => setProfileTab("seller")}
@@ -798,13 +966,13 @@ export default function Profile({
               cursor: "pointer",
               fontWeight: 700,
               fontSize: 14.5,
-              background: profileTab === "seller" ? T.teal : T.card,
+              background: profileTab === "seller" ? T.green : T.card,
               color: profileTab === "seller" ? "#fff" : T.sub,
               boxShadow: "0 1px 3px rgba(12,43,31,.06)",
               border: profileTab === "seller" ? "none" : `1px solid ${T.line}`
             }}
           >
-            🏷 Sell Distress Property
+            Sell Distress Property
           </button>
           <button
             onClick={() => setProfileTab("saved")}
@@ -816,13 +984,13 @@ export default function Profile({
               cursor: "pointer",
               fontWeight: 700,
               fontSize: 14.5,
-              background: profileTab === "saved" ? T.gold : T.card,
-              color: profileTab === "saved" ? T.ink : T.sub,
+              background: profileTab === "saved" ? T.green : T.card,
+              color: profileTab === "saved" ? "#fff" : T.sub,
               boxShadow: "0 1px 3px rgba(12,43,31,.06)",
               border: profileTab === "saved" ? "none" : `1px solid ${T.line}`
             }}
           >
-            ❤️ Saved Watchlist
+            Saved Watchlist
           </button>
           <button
             onClick={() => setProfileTab("matches")}
@@ -834,13 +1002,13 @@ export default function Profile({
               cursor: "pointer",
               fontWeight: 700,
               fontSize: 14.5,
-              background: profileTab === "matches" ? "#6B3FA0" : T.card,
+              background: profileTab === "matches" ? T.green : T.card,
               color: profileTab === "matches" ? "#fff" : T.sub,
               boxShadow: "0 1px 3px rgba(12,43,31,.06)",
               border: profileTab === "matches" ? "none" : `1px solid ${T.line}`
             }}
           >
-            🤖 Your Matches
+            Your Matches
           </button>
         </div>
 
@@ -1009,76 +1177,111 @@ export default function Profile({
                           <div style={{ borderTop: `1px dashed ${T.line}`, paddingTop: 14, marginTop: 10 }}>
                             {esc.stage === 1 && (
                               <div>
-                                <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 10, lineHeight: 1.4 }}>
-                                  🔒 <strong>Awaiting Escrow Funding:</strong> The escrow account has been initialized. Please wire the purchase funds of <strong>{fmtCurrency(esc.price)}</strong> to our partner-bank milestone escrow account to secure the property.
-                                </div>
-                                <button
-                                  onClick={() => handleEscrowPayment(esc)}
-                                  style={{
-                                    background: T.green,
-                                    color: "#fff",
-                                    border: "none",
-                                    borderRadius: 8,
-                                    padding: "10px 16px",
-                                    fontSize: 13,
-                                    fontWeight: 700,
-                                    cursor: "pointer",
-                                    boxShadow: "0 2px 6px rgba(14,90,58,0.25)"
-                                  }}
-                                >
-                                  ⚡ Wire/Deposit Purchase Funds (Simulation)
-                                </button>
+                                {esc.paymentStatus === "Pending Verification" ? (
+                                  <div style={{ fontSize: 13, background: T.tealSoft, border: `1px solid ${T.teal}`, color: T.teal, borderRadius: 10, padding: "12px 16px", lineHeight: 1.45 }}>
+                                    <strong>Awaiting Deposit Verification:</strong> Your deposit proof via <strong>{esc.paymentBank}</strong> (Ref: <code>{esc.paymentRef}</code>) has been submitted. Our compliance team is verifying the credit with our partner bank.
+                                  </div>
+                                ) : (
+                                  <div>
+                                    {esc.paymentStatus === "Failed" && (
+                                      <div style={{ fontSize: 12.5, background: T.riskSoft, border: `1px solid ${T.risk}`, color: T.risk, borderRadius: 10, padding: "10px 14px", marginBottom: 12, lineHeight: 1.4 }}>
+                                        <strong>Deposit Verification Failed:</strong> {esc.paymentRejectedReason || "The transaction reference could not be verified. Please check and try again."}
+                                      </div>
+                                    )}
+                                    <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 12, lineHeight: 1.4 }}>
+                                      🔒 <strong>Milestone Escrow Funding:</strong> Submit your bank transfer details below to fund the escrow account of <strong>{fmtCurrency(esc.price)}</strong>.
+                                    </div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>Funding Bank</label>
+                                        <select
+                                          value={payBank}
+                                          onChange={e => setPayBank(e.target.value)}
+                                          style={{ width: "100%", padding: "8px", borderRadius: 8, border: `1.5px solid ${T.line}`, fontSize: 13, background: "#fff", color: T.ink, outline: "none", marginTop: 4 }}
+                                        >
+                                          <option value="Zenith Bank">Zenith Bank</option>
+                                          <option value="Access Bank">Access Bank</option>
+                                          <option value="GTBank">GTBank</option>
+                                          <option value="UBA">UBA</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>Transaction Reference</label>
+                                        <input
+                                          type="text"
+                                          value={payTxnRef}
+                                          onChange={e => setPayTxnRef(e.target.value)}
+                                          placeholder="e.g. TXN-948210"
+                                          style={{ width: "100%", padding: "8px", borderRadius: 8, border: `1.5px solid ${T.line}`, fontSize: 13, color: T.ink, outline: "none", marginTop: 4 }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div style={{ marginBottom: 12 }}>
+                                      <label style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>Receipt Image (Simulation)</label>
+                                      <div
+                                        onClick={() => setPayReceiptName("Zenith-WireReceipt-948.pdf")}
+                                        style={{
+                                          border: `1.5px dashed ${T.teal}`,
+                                          borderRadius: 8,
+                                          padding: "10px",
+                                          textAlign: "center",
+                                          cursor: "pointer",
+                                          fontSize: 12.5,
+                                          color: T.teal,
+                                          background: payReceiptName ? T.tealSoft + "22" : "transparent",
+                                          marginTop: 4
+                                        }}
+                                      >
+                                        {payReceiptName ? `✓ ${payReceiptName}` : "Click to attach mock bank wire slip"}
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => handleEscrowPayment(esc)}
+                                      disabled={paySubmitting}
+                                      style={{
+                                        background: T.green,
+                                        color: "#fff",
+                                        border: "none",
+                                        borderRadius: 8,
+                                        padding: "10px 16px",
+                                        fontSize: 13,
+                                        fontWeight: 700,
+                                        cursor: "pointer",
+                                        boxShadow: "0 2px 6px rgba(14,90,58,0.2)"
+                                      }}
+                                    >
+                                      {paySubmitting ? "Submitting..." : "Submit Proof of Deposit"}
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             )}
 
                             {esc.stage === 2 && (
                               <div>
-                                <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 10, lineHeight: 1.4 }}>
-                                  📁 <strong>Awaiting Deed Upload:</strong> Escrow deposit verified! (Ref: {esc.paymentRef}). Please upload the signed and executed Deed of Assignment to trigger AGIS title search verification.
-                                </div>
-                                
-                                {uploadingEscrowId === esc.id ? (
-                                  <div style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: 10, padding: 12 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, fontWeight: 600, color: T.ink, marginBottom: 6 }}>
-                                      <span>Uploading document...</span>
-                                      <span>{uploadProgress}%</span>
-                                    </div>
-                                    <div style={{ height: 6, background: T.line, borderRadius: 3, overflow: "hidden" }}>
-                                      <div style={{ height: "100%", width: `${uploadProgress}%`, background: T.teal, transition: "width .2s ease" }} />
-                                    </div>
+                                {esc.deedStatus === "Pending Verification" ? (
+                                  <div style={{ fontSize: 13, background: T.tealSoft, border: `1px solid ${T.teal}`, color: T.teal, borderRadius: 10, padding: "12px 16px", lineHeight: 1.45 }}>
+                                    <strong>Awaiting AGIS Title Verification:</strong> The signed Deed of Assignment has been submitted. The compliance team is executing FCT registry searches to verify land index transfer.
                                   </div>
                                 ) : (
-                                  <div
-                                    style={{
-                                      background: T.card,
-                                      border: `1.5px dashed ${T.teal}`,
-                                      borderRadius: 10,
-                                      padding: "16px 20px",
-                                      textAlign: "center",
-                                      cursor: "pointer",
-                                      transition: "background .15s"
-                                    }}
-                                    onMouseEnter={e => e.currentTarget.style.background = T.tealSoft + "22"}
-                                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                                    onClick={() => {
-                                      const input = document.createElement("input");
-                                      input.type = "file";
-                                      input.accept = ".pdf,.doc,.docx,.jpg,.png";
-                                      input.onchange = (e) => {
-                                        if (e.target.files?.[0]) {
-                                          simulateDeedUpload(esc, e.target.files[0].name);
-                                        }
-                                      };
-                                      input.click();
-                                    }}
-                                  >
-                                    <span style={{ fontSize: 24, display: "block", marginBottom: 6 }}>📁</span>
-                                    <span style={{ fontSize: 13, fontWeight: 700, color: T.teal }}>
-                                      Click to upload Deed of Assignment
-                                    </span>
-                                    <div style={{ fontSize: 11, color: T.sub, marginTop: 4 }}>
-                                      PDF, JPG, PNG, DOC (max 10MB)
+                                  <div>
+                                    {esc.deedStatus === "Rejected" && (
+                                      <div style={{ fontSize: 12.5, background: T.riskSoft, border: `1px solid ${T.risk}`, color: T.risk, borderRadius: 10, padding: "10px 14px", marginBottom: 12, lineHeight: 1.4 }}>
+                                        <strong>Deed Execution Failed:</strong> {esc.deedRejectedReason || "Title search checks failed. Signature did not match registry copies."}
+                                      </div>
+                                    )}
+                                    <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
+                                      <div style={{ fontWeight: 700, borderBottom: `1px solid ${T.line}`, paddingBottom: 6, marginBottom: 8, color: T.green, textTransform: "uppercase", fontSize: 11.5, letterSpacing: 0.5 }}>Deed of Assignment Summary</div>
+                                      <div><strong>Assignor (Seller):</strong> FCT Administration / Verified Vendor</div>
+                                      <div><strong>Assignee (Buyer):</strong> {user.displayName || user.email}</div>
+                                      <div><strong>Property Description:</strong> {esc.propertyName}</div>
+                                      <div><strong>Purchase Consideration:</strong> {fmtCurrency(esc.price)}</div>
+                                      <div style={{ marginTop: 6, fontSize: 11, color: T.sub, fontStyle: "italic" }}>This document legally transfers ownership rights under the Land Use Act 1978.</div>
                                     </div>
+                                    <SignaturePad
+                                      onSave={(dataUrl) => handleEscrowDeedSubmit(esc, dataUrl)}
+                                      onClear={() => {}}
+                                    />
                                   </div>
                                 )}
                               </div>
@@ -1435,17 +1638,17 @@ export default function Profile({
 
           return (
             <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 }}>
-              <SectionLabel>❤️ Saved Watchlist</SectionLabel>
+              <SectionLabel>Saved Watchlist</SectionLabel>
               <p style={{ fontSize: 13, color: T.sub, marginBottom: 16 }}>
                 Deals you have bookmarked for quick comparison and monitoring.
               </p>
               
               {savedDeals.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px 20px", color: T.sub }}>
-                  <div style={{ fontSize: 36, marginBottom: 10 }}>❤️</div>
+                  <div style={{ fontSize: 40, color: T.green, marginBottom: 10 }}>♡</div>
                   <div style={{ fontWeight: 600, fontSize: 14, color: T.ink }}>Your Watchlist is Empty</div>
                   <p style={{ fontSize: 12.5, marginTop: 4, color: T.sub, maxWidth: 280, margin: "4px auto 0" }}>
-                    Heart properties in the Distress Deals or Listings tab to save them here.
+                    Save properties in the Distress Deals or Listings tab to monitor them here.
                   </p>
                 </div>
               ) : (
@@ -1492,11 +1695,11 @@ export default function Profile({
                               justifyContent: "center",
                               boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                               fontSize: 14,
-                              color: T.risk
+                              color: T.green
                             }}
                             title="Remove from watchlist"
                           >
-                            ❤️
+                            ♥
                           </button>
                           {disc > 0 && (
                             <div style={{
@@ -1596,13 +1799,18 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
     const q = query(
       collection(db, "activity_logs"),
       where("userId", "==", user.uid),
-      where("action", "==", "property_matched"),
-      orderBy("createdAt", "desc")
+      where("action", "==", "property_matched")
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const list = [];
       snapshot.forEach((docSnap) => {
         list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      // Sort client-side by createdAt descending to avoid composite index requirements
+      list.sort((a, b) => {
+        const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return timeB - timeA;
       });
       setLogs(list);
       setLoadingLogs(false);
@@ -1613,7 +1821,8 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
     return unsubscribe;
   }, [user?.uid]);
 
-  const fmtCurrency = (n) => {
+  const fmtCurrency = (val) => {
+    const n = Number(val || 0);
     if (cur === "USD") {
       const rate = 1550;
       return "$" + Math.round(n / rate).toLocaleString();
@@ -1622,10 +1831,10 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
   };
 
   // Client-side computed matches
-  const allDeals = [...dealsList, ...firestoreProps];
+  const allDeals = [...(dealsList || []), ...(firestoreProps || [])];
   const activeMatches = allDeals.filter(d => {
-    const districtMatch = buyerPrefs?.preferredDistricts?.includes(d.district);
-    const budgetMatch = (d.asking || d.askingPrice || 0) <= (buyerPrefs?.budget || Infinity);
+    const districtMatch = (buyerPrefs?.preferredDistricts || []).includes(d.district);
+    const budgetMatch = Number(d.asking || d.askingPrice || 0) <= (buyerPrefs?.budget || Infinity);
     const notOwnListing = d.userId !== user?.uid;
     return districtMatch && budgetMatch && notOwnListing;
   });
@@ -1633,11 +1842,11 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
   return (
     <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20, marginTop: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <SectionLabel color="#6B3FA0">🤖 Real-Time Match Engine</SectionLabel>
+        <SectionLabel color="#6B3FA0">Real-Time Match Engine</SectionLabel>
         {kycVerified ? (
           <Pill bg={T.mint} color={T.green}>✓ Match Engine Active</Pill>
         ) : (
-          <Pill bg={T.riskSoft} color={T.risk}>⚠️ Verify to Unlock Matches</Pill>
+          <Pill bg={T.riskSoft} color={T.risk}>Verify to Unlock Matches</Pill>
         )}
       </div>
 
@@ -1647,7 +1856,11 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
 
       {!kycVerified ? (
         <div style={{ textAlign: "center", padding: "30px 20px", background: T.paper, borderRadius: 12 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
+          <div style={{
+            width: 48, height: 48, borderRadius: "50%", background: T.mint, color: T.green,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            fontSize: 20, fontWeight: 700, margin: "0 auto 12px", border: `2px solid ${T.green}`
+          }}>!</div>
           <div style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>Verification Required</div>
           <p style={{ fontSize: 12.5, color: T.sub, maxWidth: 300, margin: "6px auto 0", lineHeight: 1.4 }}>
             Please complete your NIN/BVN check in the Buyer Hub to configure search parameters and unlock AI matches.
@@ -1657,12 +1870,16 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
         <>
           <div style={{ marginBottom: 24 }}>
             <h4 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 16, color: T.ink, margin: "0 0 12px 0" }}>
-              🎯 Live Matches ({activeMatches.length})
+              Live Matches ({activeMatches.length})
             </h4>
 
             {activeMatches.length === 0 ? (
               <div style={{ padding: "30px 20px", textAlign: "center", background: T.paper, borderRadius: 12, color: T.sub }}>
-                <span style={{ fontSize: 24, display: "block", marginBottom: 6 }}>🔍</span>
+                <div style={{
+                  width: 48, height: 48, borderRadius: "50%", background: T.mint, color: T.green,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 20, fontWeight: 700, margin: "0 auto 12px", border: `2px solid ${T.green}`
+                }}>!</div>
                 <span style={{ fontWeight: 600, fontSize: 13, color: T.ink }}>No Live Matches Found</span>
                 <p style={{ fontSize: 12, margin: "4px auto 0", maxWidth: 280 }}>
                   Adjust your budget slider or select more districts in the <b>Buyer Hub</b> tab to widen search parameters.
@@ -1698,7 +1915,7 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
                           background: "#6B3FA0", color: "#fff",
                           padding: "3px 8px", borderRadius: 6,
                           fontSize: 10, fontWeight: 700
-                        }}>🤖 AI MATCH</span>
+                        }}>AI MATCH</span>
                         {disc > 0 && (
                           <span style={{
                             position: "absolute", top: 8, right: 8,

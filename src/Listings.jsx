@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { db } from "./lib/firebase";
 import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
+import AbujaMap from "./AbujaMap";
 
 const T = {
   ink: "#0C2B1F",
@@ -103,6 +104,8 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
   const [firestoreProps, setFirestoreProps] = useState([]);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [showMap, setShowMap] = useState(false);
+  const [selectedMapDealId, setSelectedMapDealId] = useState(null);
+  const mapWrapperRef = useRef(null);
 
   // Firestore sync for distress submissions
   useEffect(() => {
@@ -142,15 +145,15 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
   }, []);
 
   // Merge and Filter properties
-  const allListings = useMemo(() => {
-    // Merge local deals with Firestore submitted deals
-    const merged = [
-      ...dealsList.filter(d => !d.status || d.status === "Published"),
-      ...firestoreProps
+  const unfilteredMergedList = useMemo(() => {
+    return [
+      ...(dealsList || []).filter(d => !d.status || d.status === "Published"),
+      ...(firestoreProps || [])
     ];
+  }, [dealsList, firestoreProps]);
 
-    // Filter logic
-    return merged.filter(d => {
+  const allListings = useMemo(() => {
+    return unfilteredMergedList.filter(d => {
       const matchesSearch =
         d.name.toLowerCase().includes(searchText.toLowerCase()) ||
         d.district.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -170,19 +173,19 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
       if (sortBy === "price_asc") return a.asking - b.asking;
       if (sortBy === "price_desc") return b.asking - a.asking;
       if (sortBy === "trust") return (b.trust || 0) - (a.trust || 0);
-      if (sortBy === "newest") return (b.days || 99) - (a.days || 99); // smaller days value is newer
+      if (sortBy === "newest") return (b.days || 99) - (a.days || 99);
       return 0;
     });
-  }, [dealsList, firestoreProps, searchText, districtFilter, typeFilter, trustMin, sortBy]);
+  }, [unfilteredMergedList, searchText, districtFilter, typeFilter, trustMin, sortBy]);
 
-  // Compute District Heat Map counts
+  // Compute District Heat Map counts from absolute properties in database
   const districtCounts = useMemo(() => {
     const counts = {};
-    allListings.forEach(d => {
+    unfilteredMergedList.forEach(d => {
       counts[d.district] = (counts[d.district] || 0) + 1;
     });
     return counts;
-  }, [allListings]);
+  }, [unfilteredMergedList]);
 
   const toggleDistrict = (dist) => {
     setDistrictFilter(prev =>
@@ -229,14 +232,22 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
         
         <div style={{ position: "relative", zIndex: 1 }}>
           <h1 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 32, margin: "0 0 8px" }}>
-            🏡 Property Directory
+            Property Directory
           </h1>
           <p style={{ fontSize: 14.5, opacity: 0.85, maxWidth: 600, lineHeight: 1.5 }}>
             Verify legal land indices, trace title ownership chains, and lock exclusive discounts on Abuja distress deals.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
-            <Pill bg="rgba(255,255,255,0.15)" color="#fff">{allListings.length} Total Verified</Pill>
-            <Pill bg={T.goldSoft} color={T.ink}>✨ {firestoreProps.length} User Submissions</Pill>
+            {unfilteredMergedList.length >= 5 ? (
+              <>
+                <Pill bg="rgba(255,255,255,0.15)" color="#fff">{unfilteredMergedList.length} Total Verified</Pill>
+                {firestoreProps.length > 0 && (
+                  <Pill bg={T.goldSoft} color={T.ink}>{firestoreProps.length} User Submissions</Pill>
+                )}
+              </>
+            ) : (
+              <Pill bg="rgba(255,255,255,0.15)" color="#fff">Newly Launched in Abuja</Pill>
+            )}
           </div>
         </div>
       </div>
@@ -257,7 +268,7 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
         <div style={{ position: "relative", display: "flex", gap: 10 }}>
           <input
             type="text"
-            placeholder="🔍 Search address, description, target district, or title grade..."
+            placeholder="Search address, description, target district, or title grade..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{
@@ -295,19 +306,30 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
         {/* Row 2: District Filter Chips */}
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: T.sub, marginBottom: 8 }}>
-            Abuja District Heat Map Filter
+            Filter by Abuja District Density
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {ABUJA_DISTRICTS.map(dist => {
               const active = districtFilter.includes(dist);
               const count = districtCounts[dist] || 0;
+              const maxCount = Math.max(...Object.values(districtCounts), 1);
+              const density = count / maxCount;
+              
+              // Dynamic heat tint representing density when inactive
+              const baseBg = count > 0 
+                ? `rgba(14, 90, 58, ${0.03 + density * 0.15})` 
+                : "transparent";
+              const baseBorder = count > 0
+                ? `rgba(14, 90, 58, ${0.1 + density * 0.3})`
+                : T.line;
+
               return (
                 <button
                   key={dist}
                   onClick={() => toggleDistrict(dist)}
                   style={{
-                    border: `1.5px solid ${active ? T.green : T.line}`,
-                    background: active ? T.mint : "transparent",
+                    border: `1.5px solid ${active ? T.green : baseBorder}`,
+                    background: active ? T.mint : baseBg,
                     color: active ? T.green : T.ink,
                     padding: "6px 12px",
                     borderRadius: 8,
@@ -323,8 +345,8 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
                   <span>{dist}</span>
                   {count > 0 && (
                     <span style={{
-                      background: active ? T.green : T.line,
-                      color: active ? "#fff" : T.sub,
+                      background: active ? T.green : "rgba(14, 90, 58, 0.15)",
+                      color: active ? "#fff" : T.green,
                       borderRadius: 10,
                       padding: "1px 5px",
                       fontSize: 10,
@@ -392,23 +414,22 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
             <span style={{ fontSize: 12.5, fontWeight: 700, color: T.sub }}>Sort By:</span>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
+              onChange={e => setSortBy(e.target.value)}
               style={{
-                padding: "6px 10px",
-                borderRadius: 8,
-                border: `1.5px solid ${T.line}`,
+                border: "none",
                 fontSize: 12.5,
-                fontWeight: 600,
+                fontWeight: 700,
+                cursor: "pointer",
                 outline: "none",
                 background: "#fff",
                 color: T.ink
               }}
             >
-              <option value="discount">⚡ Discount (Highest)</option>
-              <option value="price_asc">₦ Price (Low to High)</option>
-              <option value="price_desc">₦ Price (High to Low)</option>
-              <option value="trust">🛡️ Trust Score</option>
-              <option value="newest">⏱️ Newest Listings</option>
+              <option value="discount">Discount (Highest)</option>
+              <option value="price_asc">Price (Low to High)</option>
+              <option value="price_desc">Price (High to Low)</option>
+              <option value="trust">Trust Score</option>
+              <option value="newest">Newest Listings</option>
             </select>
           </div>
 
@@ -420,7 +441,7 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
               background: showMap ? T.tealSoft : "#fff",
               color: showMap ? T.teal : T.sub,
               borderRadius: 8,
-              padding: "6px 14px",
+              padding: "8px 14px",
               fontSize: 12.5,
               fontWeight: 700,
               cursor: "pointer",
@@ -429,137 +450,99 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
               gap: 6
             }}
           >
-            🗺️ {showMap ? "Hide Map View" : "Show Map View"}
+            {showMap ? "Hide Map View" : "Show Map View"}
           </button>
         </div>
       </div>
 
-      {/* ── Simple CSS/SVG Map view ── */}
+      {/* ── Interactive Leaflet Map view ── */}
       {showMap && (
-        <div style={{
-          background: T.card,
-          border: `1px solid ${T.line}`,
-          borderRadius: 16,
-          padding: 20,
-          marginBottom: 20,
-          boxShadow: "0 4px 15px rgba(12,43,31,0.03)",
-          position: "relative"
-        }}>
+        <div
+          ref={mapWrapperRef}
+          style={{
+            background: T.card,
+            border: `1px solid ${T.line}`,
+            borderRadius: 16,
+            padding: 20,
+            marginBottom: 20,
+            boxShadow: "0 4px 15px rgba(12,43,31,0.03)",
+            position: "relative"
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: T.green }}>
-              Abuja District Heat Map
+            <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: T.green }}>
+              📍 Interactive Abuja Map
             </div>
-            <div style={{ fontSize: 11.5, color: T.sub }}>Click any district circle to filter listings</div>
+            <div style={{ fontSize: 11.5, color: T.sub }}>Click any pin to inspect the deal's legal & financial details</div>
           </div>
-
-          {/* Map canvas */}
-          <div style={{
-            height: 280,
-            background: "#EFF2EE",
-            borderRadius: 12,
-            position: "relative",
-            overflow: "hidden",
-            border: `1px solid ${T.line}`
-          }}>
-            {/* Grid lines background */}
-            <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-              <defs>
-                <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
-                  <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(12,43,31,0.03)" strokeWidth="1" />
-                </pattern>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grid)" />
-            </svg>
-
-            {/* Render absolute map tags */}
-            {Object.entries(mapPositions).map(([district, pos]) => {
-              const count = districtCounts[district] || 0;
-              const hasMatches = count > 0;
-              const isSelected = districtFilter.includes(district);
-
-              return (
-                <button
-                  key={district}
-                  onClick={() => toggleDistrict(district)}
-                  style={{
-                    position: "absolute",
-                    left: pos.x,
-                    top: pos.y,
-                    transform: "translate(-50%, -50%)",
-                    border: "none",
-                    background: isSelected ? T.ink : hasMatches ? T.green : "#A9B3AD",
-                    color: "#fff",
-                    borderRadius: 99,
-                    padding: "6px 14px",
-                    cursor: "pointer",
-                    boxShadow: isSelected
-                      ? "0 0 0 4px rgba(12,43,31,0.18), 0 4px 10px rgba(0,0,0,0.12)"
-                      : hasMatches
-                        ? "0 2px 8px rgba(14,90,58,0.25)"
-                        : "none",
-                    fontWeight: 700,
-                    fontSize: 12,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    whiteSpace: "nowrap",
-                    transition: "all 0.2s ease",
-                    zIndex: isSelected ? 10 : 1
-                  }}
-                >
-                  <span>{district}</span>
-                  <span style={{
-                    background: "rgba(255, 255, 255, 0.22)",
-                    borderRadius: "50%",
-                    width: 18,
-                    height: 18,
-                    fontSize: 10,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <AbujaMap
+            deals={allListings}
+            highlightedDealId={selectedMapDealId}
+            onOpenDeal={onOpen}
+          />
         </div>
       )}
 
       {/* ── Listings Grid ── */}
       {allListings.length === 0 ? (
-        <div style={{
-          background: T.card,
-          border: `1px solid ${T.line}`,
-          borderRadius: 16,
-          padding: "60px 20px",
-          textAlign: "center",
-          boxShadow: "0 2px 10px rgba(0,0,0,0.02)"
-        }}>
-          <span style={{ fontSize: 48 }}>🔍</span>
-          <h2 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 20, color: T.ink, marginTop: 16 }}>
-            No Matching Properties Found
-          </h2>
-          <p style={{ color: T.sub, fontSize: 14, marginTop: 6, maxWidth: 360, margin: "6px auto 18px" }}>
-            We couldn't find any properties matching your current filters. Try resetting the criteria or exploring nearby districts.
-          </p>
-          <button
-            onClick={clearFilters}
-            style={{
-              background: T.green,
-              color: "#fff",
-              border: "none",
-              borderRadius: 10,
-              padding: "10px 20px",
-              fontWeight: 700,
-              cursor: "pointer",
-              fontSize: 13
-            }}
-          >
-            Reset Filters & Search
-          </button>
-        </div>
+        unfilteredMergedList.length === 0 ? (
+          <div style={{
+            background: T.card,
+            border: `1px solid ${T.line}`,
+            borderRadius: 16,
+            padding: "60px 20px",
+            textAlign: "center",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.02)"
+          }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: "50%", background: T.mint, color: T.green,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: 22, fontWeight: 800, border: `2px solid ${T.green}`, margin: "0 auto 16px"
+            }}>!</div>
+            <h2 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 20, color: T.ink }}>
+              No Distress Properties Listed Yet
+            </h2>
+            <p style={{ color: T.sub, fontSize: 14, marginTop: 6, maxWidth: 380, margin: "6px auto 18px", lineHeight: 1.5 }}>
+              The marketplace has newly launched in Abuja. No user submissions or AI ingested deals have been registered on this local network yet.
+            </p>
+          </div>
+        ) : (
+          <div style={{
+            background: T.card,
+            border: `1px solid ${T.line}`,
+            borderRadius: 16,
+            padding: "60px 20px",
+            textAlign: "center",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.02)"
+          }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: "50%", background: T.mint, color: T.green,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: 22, fontWeight: 800, border: `2px solid ${T.green}`, margin: "0 auto 16px"
+            }}>!</div>
+            <h2 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 800, fontSize: 20, color: T.ink }}>
+              No Matching Properties Found
+            </h2>
+            <p style={{ color: T.sub, fontSize: 14, marginTop: 6, maxWidth: 360, margin: "6px auto 18px", lineHeight: 1.5 }}>
+              We couldn't find any properties matching your current filters. Try resetting the criteria or exploring nearby districts.
+            </p>
+            <button
+              onClick={clearFilters}
+              style={{
+                background: T.green,
+                color: "#fff",
+                border: "none",
+                borderRadius: 10,
+                padding: "10px 20px",
+                fontWeight: 700,
+                cursor: "pointer",
+                fontSize: 13
+              }}
+            >
+              Reset Filters & Search
+            </button>
+          </div>
+        )
       ) : (
         <div style={{
           display: "grid",
@@ -570,28 +553,33 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
             const disc = deal.market ? Math.round(((deal.market - deal.asking) / deal.market) * 100) : 0;
             const photo = getPhoto(deal);
 
+            const isHighlighted = deal.id === selectedMapDealId;
+
             return (
               <div
                 key={deal.id}
                 onClick={() => setSelectedDeal(deal)}
                 style={{
                   background: T.card,
-                  border: `1px solid ${T.line}`,
+                  border: isHighlighted ? `2.5px solid ${T.green}` : `1px solid ${T.line}`,
                   borderRadius: 16,
                   overflow: "hidden",
                   display: "flex",
                   flexDirection: "column",
-                  boxShadow: "0 1px 3px rgba(12,43,31,.04)",
+                  boxShadow: isHighlighted ? "0 10px 32px rgba(12,43,31,0.15)" : "0 1px 3px rgba(12,43,31,.04)",
                   cursor: "pointer",
-                  transition: "transform .2s ease, box-shadow .2s ease",
+                  transform: isHighlighted ? "translateY(-4px)" : "translateY(0)",
+                  transition: "transform .2s ease, box-shadow .2s ease, border-color .2s ease",
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.boxShadow = "0 8px 24px rgba(12,43,31,.1)";
-                  e.currentTarget.style.transform = "translateY(-3px)";
+                  e.currentTarget.style.boxShadow = "0 10px 32px rgba(12,43,31,.18)";
+                  e.currentTarget.style.transform = "translateY(-6px)";
+                  if (!isHighlighted) e.currentTarget.style.borderColor = T.green;
                 }}
                 onMouseLeave={e => {
-                  e.currentTarget.style.boxShadow = "0 1px 3px rgba(12,43,31,.04)";
-                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = isHighlighted ? "0 10px 32px rgba(12,43,31,0.15)" : "0 1px 3px rgba(12,43,31,.04)";
+                  e.currentTarget.style.transform = isHighlighted ? "translateY(-4px)" : "translateY(0)";
+                  e.currentTarget.style.borderColor = isHighlighted ? T.green : T.line;
                 }}
               >
                 {/* Image */}
@@ -633,7 +621,7 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
                       padding: "4px 8px",
                       boxShadow: "0 2px 6px rgba(201,162,39,.3)",
                     }}>
-                      ✨ User Ingested
+                      User Ingested
                     </div>
                   )}
 
@@ -692,11 +680,49 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
                     </div>
 
                     {/* Footer pills */}
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 10 }}>
-                      <Pill bg={deal.inspected ? T.mint : T.paper} color={deal.inspected ? T.green : T.sub}>
-                        {deal.inspected ? "✓ Inspected" : "Pending Field Check"}
-                      </Pill>
-                      {deal.titleGrade === "A" && <Pill bg={T.tealSoft} color={T.teal}>C of O Verified</Pill>}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, flexWrap: "wrap", gap: 6 }}>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        <Pill bg={deal.inspected ? T.mint : T.paper} color={deal.inspected ? T.green : T.sub}>
+                          {deal.inspected ? "✓ Inspected" : "Pending Field Check"}
+                        </Pill>
+                        {deal.titleGrade === "A" && <Pill bg={T.tealSoft} color={T.teal}>C of O Verified</Pill>}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedMapDealId(deal.id);
+                          setShowMap(true);
+                          setTimeout(() => {
+                            if (mapWrapperRef.current) {
+                              mapWrapperRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }
+                          }, 100);
+                        }}
+                        style={{
+                          border: `1.5px solid ${isHighlighted ? T.green : T.line}`,
+                          background: isHighlighted ? T.mint : "#fff",
+                          color: T.green,
+                          borderRadius: 8,
+                          padding: "5px 10px",
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          transition: "all 0.15s ease",
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = T.mint;
+                          e.currentTarget.style.borderColor = T.green;
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = isHighlighted ? T.mint : "#fff";
+                          e.currentTarget.style.borderColor = isHighlighted ? T.green : T.line;
+                        }}
+                      >
+                        Locate
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -835,14 +861,14 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>AGIS Registry Search</div>
                     <div style={{ fontSize: 13, color: T.ink, marginTop: 2, background: T.paper, padding: "6px 10px", borderRadius: 8 }}>
-                      🔍 {selectedDeal.agis}
+                      {selectedDeal.agis}
                     </div>
                   </div>
 
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>Urgency Reason / Notes</div>
                     <div style={{ fontSize: 13, color: T.ink, marginTop: 2, lineHeight: 1.4 }}>
-                      ⏱️ {selectedDeal.urgency}
+                      {selectedDeal.urgency}
                     </div>
                   </div>
 
@@ -902,10 +928,10 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
                   cursor: "pointer"
                 }}
               >
-                📷 Inspect Legal Documents & Photos
+                Inspect Legal Documents & Photos
               </button>
               <a
-                href={`https://wa.me/2349098234823?text=Hi,%20I'm%20interested%20in%20inspecting%20the%20${encodeURIComponent(selectedDeal.name)}`}
+                href={`https://wa.me/2347036990717?text=Hi,%20I'm%20interested%20in%20inspecting%20the%20${encodeURIComponent(selectedDeal.name)}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{
@@ -921,7 +947,7 @@ export default function Listings({ dealsList, cur, onOpen, user }) {
                   textDecoration: "none"
                 }}
               >
-                💬 Chat with Deal Concierge
+                Chat with Deal Concierge
               </a>
             </div>
           </div>

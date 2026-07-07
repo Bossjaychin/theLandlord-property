@@ -4,6 +4,8 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getDataConnect, connectDataConnectEmulator } from 'firebase/data-connect';
 import { getFirestore, connectFirestoreEmulator, doc, updateDoc } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { getAI, getGenerativeModel, GoogleAIBackend } from 'firebase/ai';
 import { connectorConfig } from './dataconnect';
 
 // Firebase project config
@@ -18,6 +20,26 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+// App Check — only initialized in browser context
+let appCheck = null;
+if (typeof window !== 'undefined') {
+  // If in local development, enable debug token provider for emulators
+  if (import.meta.env.DEV) {
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+  appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider('6Ld_w6mzAAAAAMZ7vX_wXkWXjGIi9VfJBtj5MYnB'), // Swap with your production reCAPTCHA Enterprise key
+    isTokenAutoRefreshEnabled: true
+  });
+}
+
+// Initialize Firebase AI (Gemini Developer API)
+const ai = getAI(app, { backend: new GoogleAIBackend() });
+const aiModel = getGenerativeModel(ai, {
+  model: 'gemini-3.5-flash',
+  systemInstruction: 'You are "Landlord AI", a friendly Nigerian real estate concierge for The Landlord Property platform in Abuja. You help buyers, sellers, and shortlet guests in English or Pidgin. You specialise in: distress deals, title forensics, AGIS searches, shortlet revenue projection, escrow process, and Abuja districts (Jabi, Guzape, Maitama, Wuse, Lugbe, Katampe, Gwarinpa). Keep answers concise, warm, and actionable. Use ₦ for Naira. Never fabricate specific property details.'
+});
 
 // Analytics — only in browser/production context
 const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
@@ -101,4 +123,4 @@ export function onForegroundMessage(callback) {
   return onMessage(messaging, callback);
 }
 
-export { app, auth, analytics, dataConnect, db, messaging };
+export { app, auth, analytics, dataConnect, db, messaging, appCheck, ai, aiModel };

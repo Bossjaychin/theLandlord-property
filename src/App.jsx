@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import Admin from "./Admin";
 import Marketplace from "./Marketplace";
 import Listings from "./Listings";
-import { dataConnect, auth, db, requestNotificationPermission, onForegroundMessage } from "./lib/firebase";
+import { dataConnect, auth, db, requestNotificationPermission, onForegroundMessage, aiModel } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, updateDoc, serverTimestamp, query, collection, where, orderBy, onSnapshot, writeBatch, addDoc, getDocs, getDoc, setDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { fetchDistrictAvailability, createProperty, createBooking, secureDistressSearch, createDistressProperty, listAllProperties } from "./lib/dataconnect";
@@ -1613,6 +1613,42 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
 
 const DealsView = ({ cur, onOpen, query, setQuery, dealsList, onAiSearch, aiResults, aiSearching, usingEmulator, savedIds, onToggleSave, compareIds, onToggleCompare }) => {
   const [pidgin, setPidgin] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+
+  const handleVoiceSearch = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Try Chrome, Safari or Edge! 🎙️");
+      return;
+    }
+    
+    setIsListening(true);
+    const recognition = new SpeechRecognition();
+    recognition.lang = pidgin ? "en-NG" : "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      const speechToText = event.results[0][0].transcript;
+      setQuery(speechToText);
+      setIsListening(false);
+      if (speechToText.trim() && onAiSearch) {
+        onAiSearch(speechToText);
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  };
+
   const parsed = useMemo(() => {
     const q = query.toLowerCase();
     const district = ["jabi", "guzape", "wuse", "lugbe", "katampe", "kubwa", "maitama", "gwarinpa", "apo", "life camp"].find((d) => q.includes(d));
@@ -1639,55 +1675,265 @@ const DealsView = ({ cur, onOpen, query, setQuery, dealsList, onAiSearch, aiResu
 
   return (
     <div>
-      {/* hero */}
-      <div style={{ background: T.ink, borderRadius: 20, padding: "28px 24px", color: "#fff", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", right: -40, top: -40, width: 220, height: 220, borderRadius: "50%", background: "rgba(201,162,39,.14)" }} />
-        <div style={{ position: "absolute", right: 60, bottom: -70, width: 160, height: 160, borderRadius: "50%", background: "rgba(14,107,117,.22)" }} />
-        <SectionLabel color={T.gold}>Pillar 1 · Verified Distress Deals — Abuja</SectionLabel>
-        <h1 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: "clamp(24px,4vw,36px)", lineHeight: 1.15, margin: 0, maxWidth: 560 }}>
-          Below-market properties. Verified before you ever see them.
-        </h1>
-        <p style={{ fontSize: 14.5, opacity: 0.85, maxWidth: 520, marginTop: 10 }}>
-          Every deal passes NIN/BVN identity checks, AGIS title search, document forensics and field inspection. Funds move only through escrow.
-        </p>
+      <style>{`
+        @keyframes lp-pulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(0.96); opacity: 0.85; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+      {/* Premium Hero Wrapper */}
+      <div style={{
+        background: `linear-gradient(135deg, ${T.ink} 0%, #062217 100%)`,
+        borderRadius: 24,
+        padding: "36px 28px",
+        color: "#fff",
+        position: "relative",
+        overflow: "hidden",
+        boxShadow: "0 10px 30px rgba(12,43,31,0.15)",
+        marginBottom: 20
+      }}>
+        {/* Decorative backdrop gradients */}
+        <div style={{ position: "absolute", right: -60, top: -60, width: 260, height: 260, borderRadius: "50%", background: "rgba(201,162,39,.1)" }} />
+        <div style={{ position: "absolute", right: 80, bottom: -80, width: 220, height: 220, borderRadius: "50%", background: "rgba(14,107,117,.15)" }} />
+        
+        <div style={{
+          position: "relative",
+          zIndex: 2,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 32,
+          alignItems: "center"
+        }}>
+          {/* Left Column: Title & Search Console */}
+          <div>
+            <SectionLabel color={T.gold}>Pillar 1 · Verified Distress Deals — Abuja</SectionLabel>
+            <h1 style={{
+              fontFamily: "'Bricolage Grotesque'",
+              fontWeight: 800,
+              fontSize: "clamp(26px, 4.5vw, 38px)",
+              lineHeight: 1.15,
+              margin: "8px 0 0",
+              letterSpacing: "-0.5px"
+            }}>
+              Below-market properties. <br />
+              <span style={{ color: T.gold }}>Verified before you ever see them.</span>
+            </h1>
+            <p style={{
+              fontSize: 14.5,
+              opacity: 0.85,
+              lineHeight: 1.6,
+              marginTop: 12,
+              marginBottom: 24,
+              color: "rgba(255,255,255,0.9)"
+            }}>
+              Every listing passes biometric identity checks, AGIS title registry search, document forensics, and field agent geolocation inspection. Your investment is secured under bank-grade escrow.
+            </p>
 
-        {/* NL search */}
-        <div style={{ marginTop: 16, background: "#fff", borderRadius: 14, padding: 8, display: "flex", gap: 8, alignItems: "center", maxWidth: 640, flexWrap: "wrap" }}>
-          <input
-            id="deals-search-input"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && query.trim() && onAiSearch && onAiSearch(query)}
-            placeholder={example}
-            aria-label="Describe what you want"
-            style={{ flex: "1 1 220px", border: "none", outline: "none", fontSize: 14, padding: "10px 12px", color: T.ink, fontFamily: "'Instrument Sans'", background: "transparent" }}
-          />
-          <Btn small kind="ghost" onClick={() => setQuery(example)}>🎙 Try voice</Btn>
-          <Btn
-            small
-            id="ai-search-btn"
-            onClick={() => query.trim() && onAiSearch && onAiSearch(query)}
-            disabled={aiSearching}
-            style={{ opacity: aiSearching ? 0.7 : 1, minWidth: 100 }}
-          >
-            {aiSearching ? "Searching…" : usingEmulator ? "✦ AI Search" : "AI Search"}
-          </Btn>
-        </div>
-        <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>The AI understands</span>
-          <button
-            onClick={() => setPidgin(false)}
-            style={{ fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", borderRadius: 999, padding: "3px 10px", background: !pidgin ? T.gold : "rgba(255,255,255,.12)", color: !pidgin ? T.ink : "#fff" }}
-          >
-            English
-          </button>
-          <button
-            onClick={() => setPidgin(true)}
-            style={{ fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", borderRadius: 999, padding: "3px 10px", background: pidgin ? T.gold : "rgba(255,255,255,.12)", color: pidgin ? T.ink : "#fff" }}
-          >
-            Pidgin
-          </button>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>· Hausa & Yoruba coming soon</span>
+            {/* AI Search Console */}
+            <div style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: "6px 8px 6px 14px",
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+              border: `1.5px solid rgba(255,255,255,0.2)`
+            }}>
+              <span style={{ display: "flex", alignItems: "center", opacity: 0.4 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.ink} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+              </span>
+              <input
+                id="deals-search-input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && query.trim() && onAiSearch && onAiSearch(query)}
+                placeholder={example}
+                aria-label="Describe what you want"
+                style={{
+                  flex: 1,
+                  border: "none",
+                  outline: "none",
+                  fontSize: 14,
+                  padding: "8px 0",
+                  color: T.ink,
+                  fontFamily: "'Instrument Sans'",
+                  background: "transparent"
+                }}
+              />
+              <Btn
+                small
+                kind={isListening ? "danger" : "ghost"}
+                onClick={handleVoiceSearch}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  gap: 6,
+                  animation: isListening ? "lp-pulse 1.2s infinite" : "none",
+                  background: isListening ? T.risk : "rgba(12,43,31,0.06)",
+                  color: isListening ? "#fff" : T.ink,
+                  border: "none"
+                }}
+              >
+                {isListening ? (
+                  <>🔴 Listening…</>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                      <line x1="12" y1="19" x2="12" y2="22"></line>
+                    </svg>
+                    Try voice
+                  </>
+                )}
+              </Btn>
+              <Btn
+                small
+                id="ai-search-btn"
+                onClick={() => query.trim() && onAiSearch && onAiSearch(query)}
+                disabled={aiSearching}
+                style={{
+                  opacity: aiSearching ? 0.7 : 1,
+                  minWidth: 100,
+                  borderRadius: 10,
+                  padding: "8px 16px"
+                }}
+              >
+                {aiSearching ? (
+                  "Searching…"
+                ) : (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                    AI Search
+                  </span>
+                )}
+              </Btn>
+            </div>
+
+            {/* Language Selection */}
+            <div style={{ marginTop: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, opacity: 0.75 }}>The AI understands</span>
+              <button
+                onClick={() => setPidgin(false)}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: 999,
+                  padding: "4px 12px",
+                  background: !pidgin ? T.gold : "rgba(255,255,255,.12)",
+                  color: !pidgin ? T.ink : "#fff",
+                  transition: "all 0.15s ease"
+                }}
+              >
+                English
+              </button>
+              <button
+                onClick={() => setPidgin(true)}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: 999,
+                  padding: "4px 12px",
+                  background: pidgin ? T.gold : "rgba(255,255,255,.12)",
+                  color: pidgin ? T.ink : "#fff",
+                  transition: "all 0.15s ease"
+                }}
+              >
+                Pidgin
+              </button>
+              <span style={{ fontSize: 12, opacity: 0.75 }}>· Hausa & Yoruba coming soon</span>
+            </div>
+          </div>
+
+          {/* Right Column: 4 Verification Pillars Interactive Display */}
+          <div style={{
+            background: "rgba(255, 255, 255, 0.04)",
+            borderRadius: 20,
+            padding: 24,
+            border: "1px solid rgba(255, 255, 255, 0.1)",
+            backdropFilter: "blur(10px)"
+          }}>
+            <div style={{
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: T.gold,
+              textTransform: "uppercase",
+              letterSpacing: 1.5,
+              marginBottom: 16
+            }}>
+              AGIS Land Verification Protocol
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                { title: "Seller Identity Audits", desc: "NIN/BVN checks gatekeeper verification", step: "Pillar 1", status: "Verified ✓" },
+                { title: "AGIS Registry Search", desc: "Verifies title deed, boundaries, & encumbrances", step: "Pillar 2", status: "Passed ✓" },
+                { title: "Document Forensics", desc: "Validates allocation letter & signature chain", step: "Pillar 3", status: "Passed ✓" },
+                { title: "Coordinates Field Inspection", desc: "GPS mapping check against encroachment", step: "Pillar 4", status: "Verified ✓" }
+              ].map((p, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    background: "rgba(255, 255, 255, 0.05)",
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    border: `1px solid rgba(255, 255, 255, 0.08)`,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    transition: "transform 0.2s ease, border-color 0.2s ease",
+                    cursor: "default"
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "translateX(6px)";
+                    e.currentTarget.style.borderColor = T.gold;
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "translateX(0)";
+                    e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.08)";
+                  }}
+                >
+                  {/* Step bubble */}
+                  <div style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: T.goldSoft,
+                    color: T.gold,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0
+                  }}>
+                    {idx + 1}
+                  </div>
+                  {/* Detail */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 700, fontSize: 13.5, color: "#fff" }}>{p.title}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.mint }}>{p.status}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, opacity: 0.7, marginTop: 2, color: "rgba(255,255,255,0.8)" }}>{p.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1798,18 +2044,25 @@ const WhatsAppPanel = ({ open, setOpen }) => {
     setMsgs((m) => [...m, { me: true, t: mine }]);
     setInp("");
     setAiTyping(true);
-    historyRef.current = [...historyRef.current, { role: 'user', text: mine }];
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: mine, history: historyRef.current.slice(-10) }),
+      // Map history to the role/parts format required by firebase/ai
+      const chatHistory = msgs.map(m => ({
+        role: m.me ? "user" : "model",
+        parts: [{ text: m.t }]
+      }));
+
+      // Start client-side chat session with history
+      const chat = aiModel.startChat({
+        history: chatHistory,
       });
-      const data = await res.json();
-      const reply = data.reply || "I go check that — try again in a moment.";
-      historyRef.current = [...historyRef.current, { role: 'model', text: reply }];
+
+      // Send message to client-side generative model
+      const result = await chat.sendMessage(mine);
+      const reply = result.response.text();
+
       setMsgs((m) => [...m, { me: false, t: reply }]);
-    } catch {
+    } catch (err) {
+      console.error("[Firebase AI] Chat failed:", err);
       setMsgs((m) => [...m, { me: false, t: "Network error — please check your connection. 🙏" }]);
     } finally {
       setAiTyping(false);
@@ -1823,8 +2076,8 @@ const WhatsAppPanel = ({ open, setOpen }) => {
         className="wa-fab"
         style={{
           position: "fixed",
-          right: 18,
-          bottom: 18,
+          right: 24,
+          bottom: 24,
           zIndex: 90,
           background: "#1FAF55",
           color: "#fff",
@@ -1840,7 +2093,7 @@ const WhatsAppPanel = ({ open, setOpen }) => {
           gap: 8,
         }}
       >
-        💬 WhatsApp AI
+        WhatsApp AI
       </button>
       {open && (
         <div
@@ -2336,10 +2589,10 @@ const NotificationBell = ({ user }) => {
 
   const getChannelIcon = (type) => {
     switch (type) {
-      case "email": return "📧";
-      case "sms": return "📱";
-      case "whatsapp": return "💬";
-      default: return "🔔";
+      case "email": return "[Email]";
+      case "sms": return "[SMS]";
+      case "whatsapp": return "[WA]";
+      default: return "[Alert]";
     }
   };
 
@@ -2367,7 +2620,10 @@ const NotificationBell = ({ user }) => {
         onMouseEnter={e => e.currentTarget.style.background = "rgba(12,43,31,0.06)"}
         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
       >
-        🔔
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+        </svg>
         {unreadCount > 0 && (
           <span style={{
             position: "absolute",
@@ -2534,6 +2790,7 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [pushPermission, setPushPermission] = useState(null); // null | 'default' | 'granted' | 'denied'
   const [pushBannerDismissed, setPushBannerDismissed] = useState(false);
+  const [showPushBanner, setShowPushBanner] = useState(false);
   const [fcmForegroundNotif, setFcmForegroundNotif] = useState(null);
 
   // Saved / Watchlist deals state (Set of deal IDs)
@@ -2593,6 +2850,10 @@ export default function App() {
       nextSaved = next;
       return next;
     });
+
+    if (isAdded) {
+      setShowPushBanner(true);
+    }
 
     if (user) {
       try {
@@ -2855,6 +3116,7 @@ export default function App() {
 
   const buyAndOnboard = async (deal) => {
     setModal(null);
+    setShowPushBanner(true);
 
     if (usingEmulator) {
       try {
@@ -2953,8 +3215,15 @@ export default function App() {
         .diaspora-heading { color: #ffffff; }
 
         /* ── Nav label hiding ── */
-        @media (max-width: 1100px) {
-          .nav-label-text { display: none; }
+        /* ── Nav scrollbar hiding ── */
+        .header-container nav {
+          overflow-x: auto !important;
+          flex-wrap: nowrap !important;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        .header-container nav::-webkit-scrollbar {
+          display: none;
         }
 
         /* ── Tablet ── */
@@ -2972,14 +3241,15 @@ export default function App() {
         /* ── Mobile 600px ── */
         @media (max-width: 600px) {
           .nav-btn {
-            padding: 8px !important;
-            min-height: 44px !important;
-            min-width: 44px !important;
-            font-size: 16px !important;
+            padding: 6px 12px !important;
+            min-height: 38px !important;
+            min-width: 0 !important;
+            font-size: 12.5px !important;
             border-radius: 10px !important;
           }
           .header-container {
             flex-wrap: wrap !important;
+            gap: 10px !important;
           }
         }
 
@@ -3000,19 +3270,17 @@ export default function App() {
           /* Main padding */
           main { padding: 12px 10px 100px !important; }
 
-          /* ── Nav buttons: icon-only, 44px tap targets ── */
+          /* ── Nav buttons: mobile overrides ── */
           .nav-btn {
-            padding: 0 !important;
-            width: 44px !important;
-            height: 44px !important;
-            min-width: 44px !important;
+            padding: 6px 10px !important;
+            width: auto !important;
+            height: auto !important;
+            min-width: 0 !important;
             display: inline-flex !important;
             align-items: center !important;
-            justify-content: center !important;
-            font-size: 18px !important;
-            border-radius: 10px !important;
+            font-size: 12px !important;
+            border-radius: 8px !important;
           }
-          .nav-btn .nav-label-text { display: none !important; }
 
           /* ── Deal cards: single col, no hover translate ── */
           .deal-grid {
@@ -3095,10 +3363,10 @@ export default function App() {
 
           /* ── WhatsApp button: smaller, stays clear ── */
           .wa-fab {
-            padding: 12px 14px !important;
+            padding: 12px 16px !important;
             font-size: 13px !important;
-            right: 12px !important;
-            bottom: 14px !important;
+            right: 24px !important;
+            bottom: 24px !important;
           }
           .wa-panel {
             right: 8px !important;
@@ -3178,10 +3446,10 @@ export default function App() {
         <div className="header-container" style={{ maxWidth: 1120, margin: "0 auto", padding: "14px 18px", display: "flex", alignItems: "center", gap: 16, flexWrap: "nowrap" }}>
           
           {/* Logo & Typographic Brand Lockup */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: "auto", flexShrink: 0, whiteSpace: "nowrap" }}>
             <img
               src="/logo_mark.png"
-              alt="The Landlord Property"
+              alt="The Landlord Property AI"
               style={{
                 height: 40,
                 width: "auto",
@@ -3189,13 +3457,13 @@ export default function App() {
                 flexShrink: 0,
               }}
             />
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17, color: T.ink }}>The Landlord</span>
-                <span style={{ fontFamily: "'Instrument Sans'", fontWeight: 400, fontSize: 16, color: T.green }}>Property</span>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", background: T.gold }}></span>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.1 }}>
+                <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17.5, color: T.ink }}>The Landlord</span>
+                <span style={{ fontFamily: "'Instrument Sans'", fontWeight: 400, fontSize: 16.5, color: T.green }}>Property</span>
+                <span style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17.5, color: T.gold }}>AI</span>
               </div>
-              <div style={{ fontSize: 9.5, color: T.sub, letterSpacing: 1.2, fontWeight: 700, textTransform: "uppercase", marginTop: 1 }}>
+              <div style={{ fontSize: 9.5, color: T.sub, letterSpacing: 1.2, fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>
                 Verification &amp; Escrow Gateway · Abuja
               </div>
             </div>
@@ -3239,13 +3507,13 @@ export default function App() {
             boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
           }}>
             {[
-              ["deals", "⚡", "Distress Deals"],
-              ["listings", "🏘️", "Listings", dealsList.filter(d => !d.status || d.status === "Published").length],
-              ["marketplace", "🏪", "Marketplace"],
-              ["shortlet", "🏡", "Shortlet Manager"],
-              ["profile", "👤", "Profile"],
-              ...(user ? [["admin", "⚙️", "Admin"]] : []),
-            ].map(([k, icon, text, badge]) => {
+              ["deals", "Deals"],
+              ["listings", "Listings", dealsList.filter(d => !d.status || d.status === "Published").length],
+              ["marketplace", "Marketplace"],
+              ["shortlet", "Shortlets"],
+              ["profile", "Profile"],
+              ...(user ? [["admin", "Admin"]] : []),
+            ].map(([k, text, badge]) => {
               const active = tab === k;
               return (
                 <button
@@ -3267,10 +3535,10 @@ export default function App() {
                     display: "inline-flex",
                     alignItems: "center",
                     position: "relative",
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  <span>{icon}</span>
-                  <span className="nav-label-text" style={{ marginLeft: 4 }}>{text}</span>
+                  <span className="nav-label-text">{text}</span>
                   {badge > 0 && (
                     <span style={{
                       marginLeft: 5,
@@ -3394,7 +3662,7 @@ export default function App() {
       <main style={{ maxWidth: 1120, margin: "0 auto", padding: "18px 18px 90px" }}>
 
         {/* ── FCM Push Notification Banner ── */}
-        {user && pushPermission === 'default' && !pushBannerDismissed && (
+        {user && pushPermission === 'default' && showPushBanner && !pushBannerDismissed && (
           <div style={{
             background: `linear-gradient(135deg, ${T.ink}, #0A3420)`,
             color: "#fff",
@@ -3407,7 +3675,6 @@ export default function App() {
             flexWrap: "wrap",
             animation: "slideup .3s ease",
           }}>
-            <span style={{ fontSize: 22 }}>🔔</span>
             <div style={{ flex: 1, minWidth: 200 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>Enable push notifications</div>
               <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 2 }}>Get instant alerts when matching deals are found, or when your bids advance.</div>
@@ -3451,7 +3718,12 @@ export default function App() {
             animation: "slideup .3s ease",
             display: "flex", alignItems: "flex-start", gap: 12,
           }}>
-            <span style={{ fontSize: 20, flexShrink: 0 }}>🔔</span>
+            <span style={{ flexShrink: 0, display: "flex", alignItems: "center", marginTop: 2 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.gold }}>
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+            </span>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 13.5 }}>{fcmForegroundNotif.title}</div>
               {fcmForegroundNotif.body && <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3 }}>{fcmForegroundNotif.body}</div>}
@@ -3527,7 +3799,7 @@ export default function App() {
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 <Btn kind="gold" onClick={() => setWaOpen(true)}>
-                  💬 Talk to a deal concierge
+                  Talk to a deal concierge
                 </Btn>
                 <Btn kind="ghost" style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => setTab("deals")}>
                   Browse verified deals →
@@ -3646,10 +3918,10 @@ export default function App() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 12.5, letterSpacing: 1.4, textTransform: "uppercase", color: T.gold, marginBottom: 18 }}>Security & Escrow</div>
             <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 11, fontSize: 13.5, opacity: 0.85 }}>
-              <li>🔒 Partner bank milestone escrow</li>
-              <li>🪪 NIN / BVN identity verification</li>
-              <li>⚖ Certified AGIS title chain search</li>
-              <li>📱 Integrated WhatsApp concierge</li>
+              <li>Partner bank milestone escrow</li>
+              <li>NIN / BVN identity verification</li>
+              <li>Certified AGIS title chain search</li>
+              <li>Integrated WhatsApp concierge</li>
             </ul>
           </div>
 
@@ -3657,9 +3929,9 @@ export default function App() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 12.5, letterSpacing: 1.4, textTransform: "uppercase", color: T.gold, marginBottom: 18 }}>Contact Info</div>
             <div style={{ fontSize: 13.5, opacity: 0.75, lineHeight: 1.6, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div>📍 Constitution Avenue, Central Business District, Abuja, FCT</div>
-              <div>✉️ support@thelandlord.ai</div>
-              <div>📞 +234 (0) 90 9823 4823</div>
+              <div>Address: Constitution Avenue, Central Business District, Abuja, FCT</div>
+              <div>Email: info@thelandlordproperty.com</div>
+              <div>Phone: +234 (0) 70 3699 0717</div>
               <div style={{ marginTop: 4 }}>
                 <span style={{ color: T.gold, fontWeight: 700 }}>Concierge:</span> Chat on WhatsApp via the active bubble below
               </div>

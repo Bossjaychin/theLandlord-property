@@ -209,7 +209,7 @@ const AdminLoginGate = ({ onUnlock }) => {
     } catch (e) {
       console.warn("Could not read admin credentials:", e);
     }
-    return { email: "admin@thelandlord.ai", password: "adminpass" };
+    return { email: "admin@thelandlordproperty.com", password: "adminpass" };
   };
 
   const handleLogin = (e) => {
@@ -308,7 +308,7 @@ const AdminLoginGate = ({ onUnlock }) => {
               <input
                 type="email"
                 required
-                placeholder="admin@thelandlord.ai"
+                placeholder="admin@thelandlordproperty.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box" }}
@@ -361,7 +361,7 @@ const AdminLoginGate = ({ onUnlock }) => {
               <input
                 type="email"
                 required
-                placeholder="admin@thelandlord.ai"
+                placeholder="admin@thelandlordproperty.com"
                 value={recoveryEmail}
                 onChange={(e) => setRecoveryEmail(e.target.value)}
                 style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box" }}
@@ -469,7 +469,7 @@ const ChangePasswordModal = ({ onClose, showToast }) => {
       const stored = localStorage.getItem("lp_admin_creds");
       if (stored) return JSON.parse(stored);
     } catch (e) {}
-    return { email: "admin@thelandlord.ai", password: "adminpass" };
+    return { email: "admin@thelandlordproperty.com", password: "adminpass" };
   };
 
   const handleSubmit = (e) => {
@@ -1109,6 +1109,295 @@ const AnalyticsView = ({ deals }) => {
           ))}
         </div>
       </div>
+    </div>
+  );
+};
+
+
+/* ──────────────────────────────────────────────
+   Escrow Manager Component
+   ────────────────────────────────────────────── */
+const EscrowManagerView = ({ showToast }) => {
+  const [escrows, setEscrows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [rejectId, setRejectId] = useState(null);
+  const [rejectType, setRejectType] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  useEffect(() => {
+    const q = query(collection(db, "escrows"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setEscrows(list);
+      setLoading(false);
+    }, (err) => {
+      console.warn("[Admin EscrowManagerView] sync error:", err.message);
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleApproveDeposit = async (escrow) => {
+    try {
+      const escRef = doc(db, "escrows", escrow.id);
+      await updateDoc(escRef, {
+        stage: 2, // Move to Deed Upload
+        paymentStatus: "Paid",
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "activity_logs"), {
+        action: "escrow_deposit_approved",
+        details: `Compliance verified Zenith/Access wire ref ${escrow.paymentRef} for "${escrow.propertyName}" (Price: ₦${escrow.price.toLocaleString()}).`,
+        createdAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: escrow.buyerId,
+        type: "whatsapp",
+        email: escrow.buyerEmail || "",
+        status: "sent",
+        sent: true,
+        title: "Escrow Deposit Verified",
+        message: `Escrow deposit verified for "${escrow.propertyName}".\n\nNext step: Execute and sign the Deed of Assignment on your profile page to start title checks.`,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+
+      if (showToast) showToast("Escrow wire deposit approved successfully!");
+    } catch (err) {
+      console.error("[Admin Escrow] Approve deposit error:", err);
+      if (showToast) showToast("Failed to approve deposit.");
+    }
+  };
+
+  const handleRejectDeposit = async (escrow) => {
+    if (!rejectReason.trim()) {
+      if (showToast) showToast("Please input a reason for rejection.");
+      return;
+    }
+    try {
+      const escRef = doc(db, "escrows", escrow.id);
+      await updateDoc(escRef, {
+        paymentStatus: "Failed",
+        paymentRejectedReason: rejectReason,
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "activity_logs"), {
+        action: "escrow_deposit_rejected",
+        details: `Compliance rejected wire ref ${escrow.paymentRef} for "${escrow.propertyName}". Reason: ${rejectReason}`,
+        createdAt: serverTimestamp(),
+      });
+
+      if (showToast) showToast("Escrow wire deposit rejected.");
+      setRejectId(null);
+      setRejectType(null);
+      setRejectReason("");
+    } catch (err) {
+      console.error("[Admin Escrow] Reject deposit error:", err);
+      if (showToast) showToast("Failed to reject deposit.");
+    }
+  };
+
+  const handleApproveDeed = async (escrow) => {
+    try {
+      const escRef = doc(db, "escrows", escrow.id);
+      await updateDoc(escRef, {
+        stage: 3, // Move to Release / Possession
+        deedStatus: "Verified",
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "activity_logs"), {
+        action: "escrow_deed_approved",
+        details: `AGIS search verified for "${escrow.propertyName}". Deed of assignment transfer confirmed.`,
+        createdAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: escrow.buyerId,
+        type: "whatsapp",
+        email: escrow.buyerEmail || "",
+        status: "sent",
+        sent: true,
+        title: "Title Transfer Verified",
+        message: `Deed of assignment and AGIS checks completed successfully for "${escrow.propertyName}".\n\nNext step: Release funds upon taking possession.`,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+
+      if (showToast) showToast("AGIS Title Deed approved successfully!");
+    } catch (err) {
+      console.error("[Admin Escrow] Approve deed error:", err);
+      if (showToast) showToast("Failed to verify title deed.");
+    }
+  };
+
+  const handleRejectDeed = async (escrow) => {
+    if (!rejectReason.trim()) {
+      if (showToast) showToast("Please input a reason for rejection.");
+      return;
+    }
+    try {
+      const escRef = doc(db, "escrows", escrow.id);
+      await updateDoc(escRef, {
+        deedStatus: "Rejected",
+        deedRejectedReason: rejectReason,
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "activity_logs"), {
+        action: "escrow_deed_rejected",
+        details: `Admin rejected Deed transfer check for "${escrow.propertyName}". Reason: ${rejectReason}`,
+        createdAt: serverTimestamp(),
+      });
+
+      if (showToast) showToast("Title deed review rejected.");
+      setRejectId(null);
+      setRejectType(null);
+      setRejectReason("");
+    } catch (err) {
+      console.error("[Admin Escrow] Reject deed error:", err);
+      if (showToast) showToast("Failed to reject deed.");
+    }
+  };
+
+  const pendingWires = escrows.filter(e => e.paymentStatus === "Pending Verification");
+  const pendingDeeds = escrows.filter(e => e.stage === 2 && e.deedStatus === "Pending Verification");
+  const activeTransactions = escrows.filter(e => e.paymentStatus !== "Pending Verification" && e.deedStatus !== "Pending Verification");
+
+  return (
+    <div style={{ background: T.ink, borderRadius: 20, padding: 24, color: "#fff", border: `1px solid ${T.line}22`, boxShadow: "0 4px 15px rgba(0,0,0,0.05)", marginBottom: 20 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 8 }}>Compliance & Audits</div>
+      <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 26, color: "#fff", marginBottom: 18 }}>Escrow Transaction Manager</div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 30, color: T.sub }}>Syncing ledger...</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 24 }}>
+          {/* Left Column: Wires & Deed Reviews */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {/* Wires */}
+            <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.gold, textTransform: "uppercase", marginBottom: 14 }}>Pending Wire Deposits ({pendingWires.length})</div>
+              {pendingWires.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)", fontStyle: "italic" }}>No pending bank wires to audit.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {pendingWires.map(esc => (
+                    <div key={esc.id} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid rgba(255,255,255,0.08)`, borderRadius: 12, padding: 14 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{esc.propertyName}</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: T.gold, marginTop: 4 }}>₦{esc.price.toLocaleString()}</div>
+                      <div style={{ fontSize: 12, opacity: 0.8, marginTop: 8 }}>
+                        Buyer: {esc.buyerName} <br />
+                        Bank: <strong>{esc.paymentBank}</strong> | Ref: <code>{esc.paymentRef}</code>
+                      </div>
+                      
+                      {rejectId === esc.id && rejectType === "payment" ? (
+                        <div style={{ marginTop: 12 }}>
+                          <input
+                            type="text"
+                            placeholder="Reason for rejection..."
+                            value={rejectReason}
+                            onChange={e => setRejectReason(e.target.value)}
+                            style={{ width: "100%", padding: 8, borderRadius: 8, border: "none", fontSize: 12.5, outline: "none", background: "#fff", color: T.ink, marginBottom: 8 }}
+                          />
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button onClick={() => handleRejectDeposit(esc)} style={{ background: T.risk, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Confirm Reject</button>
+                            <button onClick={() => { setRejectId(null); setRejectType(null); }} style={{ background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.3)", borderRadius: 6, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                          <button onClick={() => handleApproveDeposit(esc)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Approve Wire</button>
+                          <button onClick={() => { setRejectId(esc.id); setRejectType("payment"); setRejectReason(""); }} style={{ background: "transparent", color: T.risk, border: `1.5px solid ${T.risk}`, borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Reject</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Deeds */}
+            <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.gold, textTransform: "uppercase", marginBottom: 14 }}>Pending Deed Reviews ({pendingDeeds.length})</div>
+              {pendingDeeds.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)", fontStyle: "italic" }}>No pending title searches to verify.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {pendingDeeds.map(esc => (
+                    <div key={esc.id} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid rgba(255,255,255,0.08)`, borderRadius: 12, padding: 14 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{esc.propertyName}</div>
+                      <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
+                        Buyer: {esc.buyerName} <br />
+                        Deed Document: <code>{esc.deedUrl}</code>
+                      </div>
+                      
+                      {esc.signatureUrl && (
+                        <div style={{ marginTop: 10 }}>
+                          <span style={{ fontSize: 11, color: T.gold, fontWeight: 700 }}>EXECUTION SIGNATURE:</span>
+                          <div style={{ background: "#fff", padding: 6, borderRadius: 8, width: 140, marginTop: 4 }}>
+                            <img src={esc.signatureUrl} alt="Signature" style={{ width: "100%", height: "auto", display: "block" }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {rejectId === esc.id && rejectType === "deed" ? (
+                        <div style={{ marginTop: 12 }}>
+                          <input
+                            type="text"
+                            placeholder="Reason for deed rejection..."
+                            value={rejectReason}
+                            onChange={e => setRejectReason(e.target.value)}
+                            style={{ width: "100%", padding: 8, borderRadius: 8, border: "none", fontSize: 12.5, outline: "none", background: "#fff", color: T.ink, marginBottom: 8 }}
+                          />
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button onClick={() => handleRejectDeed(esc)} style={{ background: T.risk, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Confirm Reject</button>
+                            <button onClick={() => { setRejectId(null); setRejectType(null); }} style={{ background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.3)", borderRadius: 6, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                          <button onClick={() => handleApproveDeed(esc)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Verify Title (AGIS)</button>
+                          <button onClick={() => { setRejectId(esc.id); setRejectType("deed"); setRejectReason(""); }} style={{ background: "transparent", color: T.risk, border: `1.5px solid ${T.risk}`, borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Reject Deed</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Active Ledger Summary */}
+          <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 18 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.8)", textTransform: "uppercase", marginBottom: 14 }}>Active Escrow Ledger ({activeTransactions.length})</div>
+            {activeTransactions.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>No active escrows registered.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {activeTransactions.map(esc => (
+                  <div key={esc.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.02)", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.04)" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{esc.propertyName}</div>
+                      <div style={{ fontSize: 11.5, opacity: 0.6, marginTop: 2 }}>Buyer: {esc.buyerName} | Stage {esc.stage} of 4</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.gold }}>₦{esc.price.toLocaleString()}</div>
+                      <span style={{ fontSize: 10, color: esc.status === "Completed" ? T.mint : T.teal, fontWeight: 700 }}>{esc.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1873,9 +2162,14 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
             </div>
           </div>
 
-          {/* Admin Tab Switcher */}
           <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,.7)", border: `1.5px solid ${T.line}`, borderRadius: 12, padding: 3 }}>
-            {[["deals", "📋", "Deal Management"], ["offers", "🤝", "Buyer Offers"], ["verifications", "🛡️", "KYC & Inspections"], ["analytics", "📊", "Analytics"]].map(([k, icon, label]) => (
+            {[
+              ["deals", "Deal Management"],
+              ["offers", "Buyer Offers"],
+              ["escrow", "Escrow Manager"],
+              ["verifications", "KYC & Inspections"],
+              ["analytics", "Analytics"]
+            ].map(([k, label]) => (
               <button
                 key={k}
                 onClick={() => setAdminTab(k)}
@@ -1886,27 +2180,26 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
                   fontSize: 12.5,
                   fontWeight: adminTab === k ? 700 : 600,
                   cursor: "pointer",
-                  background: adminTab === k ? (k === "analytics" ? T.teal : k === "offers" ? "#6B3FA0" : k === "verifications" ? T.green : T.ink) : "transparent",
+                  background: adminTab === k ? T.green : "transparent",
                   color: adminTab === k ? "#fff" : T.sub,
-                  transition: "all .18s ease",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
+                  transition: "all .18s ease"
                 }}
               >
-                <span>{icon}</span>
-                <span>{label}</span>
+                {label}
               </button>
             ))}
           </div>
 
-          <Btn kind="ghost" small onClick={() => setShowChangePassword(true)}>🔑 Change Password</Btn>
-          <Btn kind="ghost" small onClick={onBack}>← Back to App</Btn>
-          {adminTab === "deals" && <Btn kind="primary" small onClick={() => setModal("new")}>+ New Deal</Btn>}
+          <Btn kind="ghost" small onClick={() => setShowChangePassword(true)}>Change Password</Btn>
+          <Btn kind="ghost" small onClick={onBack}>Back to App</Btn>
+          {adminTab === "deals" && <Btn kind="primary" small onClick={() => setModal("new")}>New Deal</Btn>}
         </div>
       </header>
 
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: "20px 20px 80px" }}>
+
+        {/* Escrow Manager tab */}
+        {adminTab === "escrow" && <EscrowManagerView showToast={showToast} />}
 
         {/* Offers tab */}
         {adminTab === "offers" && <OffersView showToast={showToast} />}
@@ -1916,8 +2209,6 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
 
         {/* Analytics tab */}
         {adminTab === "analytics" && <AnalyticsView deals={deals} />}
-
-        {/* Deal management tab content */}
         {adminTab === "deals" && <>
 
         {/* Stats row */}
