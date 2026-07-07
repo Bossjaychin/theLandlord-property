@@ -216,8 +216,10 @@ function BookingCalendar({ unit, usingEmulator, onBookingConfirmed, activeBookin
 
       {/* Confirmed banner */}
       {confirmed && (
-        <div style={{ background: T.mint, border: `1px solid ${T.green}33`, borderRadius: 14, padding: "14px 18px", marginBottom: 16, animation: "calFadeIn .3s ease", display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <span style={{ fontSize: 22 }}>✅</span>
+        <div style={{ background: T.mint, border: `1px solid ${T.green}33`, borderRadius: 14, padding: "14px 18px", marginBottom: 16, animation: "calFadeIn .3s ease", display: "flex", gap: 12, alignItems: "center" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
           <div>
             <div style={{ fontWeight: 700, fontSize: 14, color: T.green }}>Booking Confirmed!</div>
             <div style={{ fontSize: 12.5, color: T.greenDark, marginTop: 3 }}>
@@ -312,7 +314,7 @@ function BookingCalendar({ unit, usingEmulator, onBookingConfirmed, activeBookin
       {/* Booking summary & CTA */}
       <div style={{ marginTop: 16, background: T.paper, border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px" }}>
         {!checkIn && (
-          <p style={{ margin: 0, fontSize: 13, color: T.sub, textAlign: "center" }}>👆 Click a date to set your check-in, then select check-out</p>
+          <p style={{ margin: 0, fontSize: 13, color: T.sub, textAlign: "center" }}>Click a date to set your check-in, then select check-out</p>
         )}
         {checkIn && !checkOut && (
           <p style={{ margin: 0, fontSize: 13, color: T.ink, textAlign: "center" }}>
@@ -360,7 +362,13 @@ function BookingCalendar({ unit, usingEmulator, onBookingConfirmed, activeBookin
                   Confirming via escrow...
                 </>
               ) : (
-                <>🔒 Confirm Booking — {fmtN(totalCost, "NGN")}</>
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  Confirm Booking — {fmtN(totalCost, "NGN")}
+                </>
               )}
             </button>
             <button
@@ -570,7 +578,7 @@ Return valid JSON ONLY:
       setGuestMessages(prev => [...prev, { sender: "ai", text: reply }]);
     } catch (err) {
       console.error("[Firebase AI] Guest chat failed:", err);
-      setGuestMessages(prev => [...prev, { sender: "ai", text: "Network error — please check your connection and try again. 🙏" }]);
+      setGuestMessages(prev => [...prev, { sender: "ai", text: "Network error — please check your connection and try again." }]);
     } finally {
       setGuestChatTyping(false);
     }
@@ -578,7 +586,7 @@ Return valid JSON ONLY:
 
   const handleBookingConfirmed = async (booking) => {
     setMyBookings(prev => [booking, ...prev]);
-    setBookingToast(`✅ Booking confirmed! ${booking.checkIn} → ${booking.checkOut} · Sending confirmation email…`);
+    setBookingToast(`Booking confirmed! ${booking.checkIn} → ${booking.checkOut} · Sending confirmation email…`);
     setSelectedUnitForCal(null);
     if (isGuest) setActiveTab("guest");
 
@@ -590,10 +598,10 @@ Return valid JSON ONLY:
         sendBookingConfirmation(booking, unit, guestEmail),
         sendHostAlert(booking, unit),
       ]);
-      setBookingToast(`✅ Confirmed! ${booking.checkIn} → ${booking.checkOut} · 📧 Confirmation email sent!`);
+      setBookingToast(`Confirmed! ${booking.checkIn} → ${booking.checkOut} · Confirmation email sent!`);
     } catch (e) {
       console.warn("Email send failed (non-critical):", e);
-      setBookingToast(`✅ Booking confirmed! ${booking.checkIn} → ${booking.checkOut}`);
+      setBookingToast(`Booking confirmed! ${booking.checkIn} → ${booking.checkOut}`);
     }
 
     setTimeout(() => setBookingToast(null), 5500);
@@ -729,7 +737,12 @@ Return valid JSON ONLY:
                     />
                     <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 6 }}>
                       <Pill bg="rgba(255,255,255,0.9)" color={T.green} border="rgba(0,0,0,0.05)">Shortlet</Pill>
-                      <Pill bg="rgba(201,162,39,0.95)" color="#fff">★ {u.rating}</Pill>
+                      <Pill bg="rgba(201,162,39,0.95)" color="#fff">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" style={{ flexShrink: 0, marginRight: 2 }}>
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                        {u.rating}
+                      </Pill>
                     </div>
                     {hasImages && (
                       <span style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.7)", color: "#fff", padding: "4px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700 }}>
@@ -742,7 +755,13 @@ Return valid JSON ONLY:
                   <div style={{ padding: "16px 18px 14px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: `1px solid ${T.line}` }}>
                     <div>
                       <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 17, color: T.ink, margin: 0 }}>{u.name}</h3>
-                      <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>📍 {u.district}, Abuja</div>
+                      <div style={{ fontSize: 12, color: T.sub, marginTop: 3, display: "flex", alignItems: "center", gap: 3 }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: T.sub }}>
+                          <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z" />
+                          <circle cx="12" cy="10" r="3" />
+                        </svg>
+                        {u.district}, Abuja
+                      </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
                       <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: T.green }}>{fmtN(u.nightly, cur)}</div>
@@ -756,9 +775,9 @@ Return valid JSON ONLY:
                     {u.features.map(f => <Pill key={f} bg={T.paper} color={T.ink}>{f}</Pill>)}
                   </div>
                   <div style={{ marginTop: 10, display: "flex", gap: 8, fontSize: 12.5, color: T.sub }}>
-                    <span>📈 {Math.round(u.occ * 100)}% occupancy</span>
+                    <span>Occupancy: <strong>{Math.round(u.occ * 100)}%</strong></span>
                     <span>·</span>
-                    <span>💰 {fmtN(u.monthNet, cur)}/mo</span>
+                    <span>Est. Yield: <strong>{fmtN(u.monthNet, cur)}/mo</strong></span>
                   </div>
                 </div>
 
@@ -909,7 +928,12 @@ Return valid JSON ONLY:
                             }}
                             style={{ display: "none" }}
                           />
-                          <div style={{ fontSize: 24, color: T.green, marginBottom: 6 }}>📸</div>
+                          <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                              <circle cx="12" cy="13" r="4" />
+                            </svg>
+                          </div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>Drag & drop or click to upload</div>
                           <div style={{ fontSize: 11, color: T.sub, marginTop: 4 }}>JPEG, PNG up to 10MB (Select multiple files)</div>
                         </div>
@@ -1234,7 +1258,12 @@ Return valid JSON ONLY:
         >
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 24, width: "min(420px, 100%)", padding: "32px 28px", boxShadow: "0 28px 64px rgba(12,43,31,.38)" }}>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 36, marginBottom: 10 }}>🔐</div>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </div>
               <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: T.ink, margin: 0 }}>
                 {authIntent === "post_apartment" ? "Owner / Host Portal" : "Guest Authentication"}
               </h3>
@@ -1412,7 +1441,10 @@ Return valid JSON ONLY:
                 gap: 10,
                 alignItems: "flex-start"
               }}>
-                <span style={{ fontSize: 18 }}>🔒</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7A5800" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
                 <div>
                   <strong>Escrow Guarantee:</strong> Your payment is held securely in our partner-bank milestone escrow account. Funds are only released to the owner after your check-in is verified on-site.
                 </div>
