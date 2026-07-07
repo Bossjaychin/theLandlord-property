@@ -67,7 +67,8 @@ export default function Profile({
   savedIds = new Set(),
   onToggleSave,
   onOpen,
-  onRegisterDistressProperty
+  onRegisterDistressProperty,
+  onBuyAndOnboard
 }) {
   const [profileTab, setProfileTab] = useState(() => {
     const mockKyc = typeof window !== "undefined" && localStorage.getItem(`lp_kyc_${user?.uid}`) === "true";
@@ -75,7 +76,29 @@ export default function Profile({
   });
   const [kycVerified, setKycVerified] = useState(false);
   const [kycSimulating, setKycSimulating] = useState(false);
+  const [kycStatus, setKycStatus] = useState(null); // null | "Pending" | "Passed" | "Failed"
+  const [showKycForm, setShowKycForm] = useState(false);
   const [firestoreProps, setFirestoreProps] = useState([]);
+  const [uploadingEscrowId, setUploadingEscrowId] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const simulateDeedUpload = (esc, fileName) => {
+    setUploadingEscrowId(esc.id);
+    setUploadProgress(0);
+    const interval = setInterval(() => {
+      setUploadProgress((p) => {
+        if (p >= 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            handleEscrowDeedUpload(esc, fileName);
+            setUploadingEscrowId(null);
+          }, 300);
+          return 100;
+        }
+        return p + 20;
+      });
+    }, 200);
+  };
 
   // Sync firestore properties to display them if saved
   useEffect(() => {
@@ -203,49 +226,43 @@ export default function Profile({
     localStorage.setItem("lp_submitted_listings", JSON.stringify(submittedListings));
   }, [submittedListings]);
 
-  // Load profile and preferences from Firestore
-  useEffect(() => {
-    if (!user) return;
-    const fetchProfile = async () => {
-      try {
-        const userDocRef = doc(db, "users", user.uid);
-        const docSnap = await getDoc(userDocRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          if (data.preferences) {
-            setBuyerPrefs(data.preferences);
-          }
-          if (data.verified) {
-            setKycVerified(true);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not fetch user profile from Firestore:", err.message);
-      }
-    };
-    fetchProfile();
-  }, [user]);
-
-  // Check custom claim for KYC
+  // Load profile and preferences from Firestore (with real-time claims fallback check)
   useEffect(() => {
     if (!user) {
       setKycVerified(false);
+      setKycStatus(null);
       return;
     }
-    // Check if custom claims exists
-    user.getIdTokenResult().then((tokenResult) => {
-      if (tokenResult.claims.kycVerified) {
-        setKycVerified(true);
-      } else {
-        // Fallback to localstorage/Firestore mocking for emulator/dev testing purposes
-        const mockKyc = localStorage.getItem(`lp_kyc_${user.uid}`) === "true";
-        if (mockKyc) {
+    const userDocRef = doc(db, "users", user.uid);
+    const unsub = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.preferences) {
+          setBuyerPrefs(data.preferences);
+        }
+        if (data.verified) {
           setKycVerified(true);
+          setKycStatus("Passed");
+        } else {
+          // Check claims as fallback
+          user.getIdTokenResult().then((tokenResult) => {
+            if (tokenResult.claims.kycVerified) {
+              setKycVerified(true);
+              setKycStatus("Passed");
+            } else {
+              setKycVerified(false);
+              setKycStatus(data.kycStatus || null);
+            }
+          }).catch(() => {
+            setKycVerified(false);
+            setKycStatus(data.kycStatus || null);
+          });
         }
       }
-    }).catch(err => {
-      console.error("Error reading token claims:", err);
+    }, (err) => {
+      console.warn("Could not sync user profile from Firestore:", err.message);
     });
+    return unsub;
   }, [user]);
 
   // Helper to save buyer preferences to Firestore
@@ -262,26 +279,58 @@ export default function Profile({
     }
   };
 
-  // Simulate verification call
-  const handleSimulateKyc = async () => {
+  const handleKycSubmit = async (fullName, idType, idNumber, docName) => {
     if (!user) return;
     setKycSimulating(true);
-    // Real flow would call an HTTP cloud function or custom token endpoint
-    setTimeout(async () => {
-      try {
-        const userDocRef = doc(db, "users", user.uid);
-        await updateDoc(userDocRef, {
-          verified: true
-        });
-        localStorage.setItem(`lp_kyc_${user.uid}`, "true");
-        setKycVerified(true);
-        setKycSimulating(false);
-        if (onToast) onToast("NIN & BVN matching succeeded! Custom KYC Claim added to token.");
-      } catch (err) {
-        console.error("Failed to update verification status in Firestore:", err);
-        setKycSimulating(false);
-      }
-    }, 1500);
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      await updateDoc(userDocRef, {
+        kycStatus: "Pending",
+        verified: false,
+        kycDetails: {
+          fullName,
+          idType,
+          idNumber,
+          documentName: docName || "id_scan.png",
+          submittedAt: new Date().toISOString()
+        }
+      });
+      if (onToast) onToast("Compliance Details Submitted! Awaiting admin review.");
+      setShowKycForm(false);
+    } catch (err) {
+      console.error("Failed to submit KYC details:", err);
+      if (onToast) onToast("Failed to submit KYC. Please try again.");
+    } finally {
+      setKycSimulating(false);
+    }
+  };
+
+  const handleKycAutoApprove = async () => {
+    if (!user) return;
+    setKycSimulating(true);
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      await updateDoc(userDocRef, {
+        verified: true,
+        kycStatus: "Passed",
+        kycDetails: {
+          fullName: user.displayName || user.email.split("@")[0],
+          idType: "NIN (Quick Bypass)",
+          idNumber: "12345678901",
+          documentName: "bypass_auto_verify.pdf",
+          submittedAt: new Date().toISOString()
+        }
+      });
+      localStorage.setItem(`lp_kyc_${user.uid}`, "true");
+      setKycVerified(true);
+      setKycStatus("Passed");
+      setShowKycForm(false);
+      if (onToast) onToast("⚡ Quick Bypass: Account verified successfully!");
+    } catch (err) {
+      console.error("Failed to bypass KYC verification:", err);
+    } finally {
+      setKycSimulating(false);
+    }
   };
 
   // Handle buyer preferences changes
@@ -409,17 +458,140 @@ export default function Profile({
     return "₦" + n.toLocaleString();
   };
 
-  // Active simulated buyer escrows
-  const activeEscrows = [
-    {
-      id: "esc-1",
-      property: "3-Bedroom Apartment, Jabi Lake axis",
-      price: 95_000_000,
-      stage: 2, // AGIS search
-      status: "In Progress",
-      milestones: ["Offer accepted", "AGIS Search & Deed Verification", "Documents Execution", "Possession / Fund Release"],
+  const [activeEscrows, setActiveEscrows] = useState([]);
+  const [loadingEscrows, setLoadingEscrows] = useState(false);
+
+  // Sync real-time escrows for this buyer
+  useEffect(() => {
+    if (!user) return;
+    setLoadingEscrows(true);
+    const q = query(
+      collection(db, "escrows"),
+      where("buyerId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setActiveEscrows(list);
+      setLoadingEscrows(false);
+    }, (err) => {
+      console.warn("[Profile] Escrows sync error:", err.message);
+      setLoadingEscrows(false);
+    });
+    return unsubscribe;
+  }, [user]);
+
+  const handleEscrowPayment = async (escrow) => {
+    try {
+      const escRef = doc(db, "escrows", escrow.id);
+      const payRef = "SIM-WIRE-" + Math.floor(100000 + Math.random() * 900000);
+      await updateDoc(escRef, {
+        stage: 2, // Move to Deed Upload
+        paymentStatus: "Paid",
+        paymentRef: payRef,
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "activity_logs"), {
+        userId: user.uid,
+        action: "escrow_payment",
+        details: `Buyer funded escrow for "${escrow.propertyName}" (Price: ${fmtCurrency(escrow.price)}). Wire ref: ${payRef}`,
+        createdAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: user.uid,
+        type: "whatsapp",
+        email: user.email || "",
+        status: "sent",
+        sent: true,
+        title: "Escrow Deposit Verified",
+        message: `🔒 Escrow deposit of ${fmtCurrency(escrow.price)} for "${escrow.propertyName}" has been verified under wire ref: ${payRef}.\n\nNext step: Upload executed deed documents for AGIS search validation.`,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+
+      if (onToast) onToast("Wire payment simulated successfully! Escrow funded.");
+    } catch (err) {
+      console.error("[Escrow] Payment failed:", err);
+      if (onToast) onToast("Simulation failed. Please try again.");
     }
-  ];
+  };
+
+  const handleEscrowDeedUpload = async (escrow, fileName) => {
+    try {
+      const escRef = doc(db, "escrows", escrow.id);
+      await updateDoc(escRef, {
+        stage: 3, // Move to Release
+        deedUrl: fileName,
+        deedUploadedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "activity_logs"), {
+        userId: user.uid,
+        action: "escrow_deed_uploaded",
+        details: `Deed of assignment "${fileName}" uploaded by buyer for "${escrow.propertyName}".`,
+        createdAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: user.uid,
+        type: "whatsapp",
+        email: user.email || "",
+        status: "sent",
+        sent: true,
+        title: "Deed Verification Pending",
+        message: `📁 Deed document "${fileName}" uploaded successfully for "${escrow.propertyName}". Our team is running document forensics and AGIS verification.\n\nNext step: Release funds upon taking possession.`,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+
+      if (onToast) onToast("Deed uploaded and registered for verification!");
+    } catch (err) {
+      console.error("[Escrow] Deed upload failed:", err);
+      if (onToast) onToast("Failed to upload deed.");
+    }
+  };
+
+  const handleEscrowRelease = async (escrow) => {
+    try {
+      const escRef = doc(db, "escrows", escrow.id);
+      await updateDoc(escRef, {
+        stage: 4, // Completed
+        status: "Completed",
+        fundsReleased: true,
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "activity_logs"), {
+        userId: user.uid,
+        action: "escrow_completed",
+        details: `Buyer confirmed possession and authorized release of escrow funds to seller for "${escrow.propertyName}".`,
+        createdAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: user.uid,
+        type: "whatsapp",
+        email: user.email || "",
+        status: "sent",
+        sent: true,
+        title: "Escrow Released & Completed",
+        message: `🎉 Escrow completed for "${escrow.propertyName}". Funds released to the seller. Welcome to homeownership!\n\nYou can now onboard this property to the Shortlet Manager to generate yields.`,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+
+      if (onToast) onToast("Escrow funds released! Transaction completed successfully.");
+    } catch (err) {
+      console.error("[Escrow] Release failed:", err);
+      if (onToast) onToast("Failed to release escrow funds.");
+    }
+  };
 
   if (!user) {
     return (
@@ -527,8 +699,12 @@ export default function Profile({
             <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>KYC VERIFICATION STATUS</span>
             {kycVerified ? (
               <Pill bg={T.mint} color={T.green}>✓ Verified</Pill>
+            ) : kycStatus === "Pending" ? (
+              <Pill bg={T.goldSoft} color={T.gold}>Pending Approval</Pill>
+            ) : kycStatus === "Failed" ? (
+              <Pill bg={T.riskSoft} color={T.risk}>Failed</Pill>
             ) : (
-              <Pill bg={T.riskSoft} color={T.risk}>Pending</Pill>
+              <Pill bg="rgba(255,255,255,.15)" color="#fff">Unverified</Pill>
             )}
           </div>
 
@@ -536,14 +712,41 @@ export default function Profile({
             <p style={{ fontSize: 12, margin: 0, opacity: 0.8, lineHeight: 1.4 }}>
               Your NIN and BVN records match. Secure search & Escrow capabilities are active.
             </p>
+          ) : kycStatus === "Pending" ? (
+            <div>
+              <p style={{ fontSize: 12, margin: 0, opacity: 0.8, lineHeight: 1.4 }}>
+                Compliance details submitted. Awaiting compliance team review. This usually takes under 2 hours.
+              </p>
+            </div>
+          ) : kycStatus === "Failed" ? (
+            <div>
+              <p style={{ fontSize: 12, margin: "0 0 10px 0", opacity: 0.8, lineHeight: 1.4, color: "#FFA1A1" }}>
+                Identity verification failed. NIN/BVN mismatch. Please check details and resubmit.
+              </p>
+              <button
+                onClick={() => setShowKycForm(true)}
+                style={{
+                  width: "100%",
+                  border: "none",
+                  background: T.risk,
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                }}
+              >
+                ⚡ Resubmit KYC Details
+              </button>
+            </div>
           ) : (
             <div>
               <p style={{ fontSize: 12, margin: "0 0 10px 0", opacity: 0.8, lineHeight: 1.4 }}>
                 Unverified accounts cannot perform AI search or place escrow offers.
               </p>
               <button
-                onClick={handleSimulateKyc}
-                disabled={kycSimulating}
+                onClick={() => setShowKycForm(true)}
                 style={{
                   width: "100%",
                   border: "none",
@@ -553,10 +756,10 @@ export default function Profile({
                   fontSize: 12,
                   padding: "8px 12px",
                   borderRadius: 8,
-                  cursor: kycSimulating ? "not-allowed" : "pointer",
+                  cursor: "pointer",
                 }}
               >
-                {kycSimulating ? "Verifying with AGIS & Identity server..." : "⚡ Complete 2-Min KYC Verification"}
+                ⚡ Complete KYC Verification
               </button>
             </div>
           )}
@@ -723,53 +926,227 @@ export default function Profile({
               {/* Escrow tracking */}
               <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 }}>
                 <SectionLabel color={T.green}>Active Escrow Transactions</SectionLabel>
-                {activeEscrows.map((esc) => (
-                  <div key={esc.id} style={{ border: `1px solid ${T.line}`, borderRadius: 12, padding: 16, background: T.paper }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                      <span style={{ fontSize: 12, color: T.sub, fontWeight: 600 }}>ESCROW ID: {esc.id}</span>
-                      <Pill bg={T.tealSoft} color={T.teal}>{esc.status}</Pill>
-                    </div>
-                    <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 16, color: T.ink }}>
-                      {esc.property}
-                    </div>
-                    <div style={{ fontSize: 18, fontFamily: "'Bricolage Grotesque'", fontWeight: 800, color: T.green, margin: "4px 0 16px" }}>
-                      {fmtCurrency(esc.price)}
-                    </div>
-
-                    {/* Progress tracking */}
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, fontWeight: 600, color: T.sub, marginBottom: 8 }}>
-                        <span>Verification Phase</span>
-                        <span>Stage {esc.stage} of 4</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 4, height: 6, background: T.line, borderRadius: 3, overflow: "hidden", marginBottom: 12 }}>
-                        {esc.milestones.map((_, i) => (
-                          <div
-                            key={i}
-                            style={{
-                              flex: 1,
-                              background: i < esc.stage ? T.green : "transparent"
-                            }}
-                          />
-                        ))}
-                      </div>
-                      <ul style={{ paddingLeft: 16, margin: 0, fontSize: 12.5, color: T.ink, display: "flex", flexDirection: "column", gap: 6 }}>
-                        {esc.milestones.map((m, i) => (
-                          <li
-                            key={i}
-                            style={{
-                              color: i < esc.stage ? T.green : i === esc.stage ? T.ink : T.sub,
-                              fontWeight: i === esc.stage ? 700 : 500,
-                              listStyleType: i < esc.stage ? "'✓ '" : "'○ '"
-                            }}
-                          >
-                            {m}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                {loadingEscrows ? (
+                  <div style={{ fontSize: 13, color: T.sub, textAlign: "center", padding: "20px 0" }}>
+                    Syncing escrow contracts...
                   </div>
-                ))}
+                ) : activeEscrows.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "30px 20px", background: T.paper, borderRadius: 12, color: T.sub }}>
+                    <span style={{ fontSize: 28, display: "block", marginBottom: 8 }}>🔒</span>
+                    <span style={{ fontWeight: 600, fontSize: 13.5, color: T.ink }}>No Active Escrows</span>
+                    <p style={{ fontSize: 12, marginTop: 4, maxWidth: 260, margin: "4px auto 0" }}>
+                      Once you submit a purchase offer and the seller/admin accepts it, your interactive escrow flow will initialize here.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {activeEscrows.map((esc) => {
+                      const milestones = [
+                        "Offer Accepted",
+                        "Escrow Funded",
+                        "Title & Deed Verified",
+                        "Possession Handed Over"
+                      ];
+                      
+                      const allDealsPool = [...dealsList, ...firestoreProps];
+                      const matchedDeal = allDealsPool.find(d => d.id === esc.propertyId);
+
+                      return (
+                        <div key={esc.id} style={{ border: `1px solid ${T.line}`, borderRadius: 12, padding: 16, background: T.paper }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                            <span style={{ fontSize: 12, color: T.sub, fontWeight: 600 }}>ESCROW ID: {esc.id}</span>
+                            <Pill
+                              bg={esc.status === "Completed" ? T.mint : T.tealSoft}
+                              color={esc.status === "Completed" ? T.green : T.teal}
+                            >
+                              {esc.status}
+                            </Pill>
+                          </div>
+                          
+                          <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 700, fontSize: 16, color: T.ink }}>
+                            {esc.propertyName}
+                          </div>
+                          <div style={{ fontSize: 18, fontFamily: "'Bricolage Grotesque'", fontWeight: 800, color: T.green, margin: "4px 0 16px" }}>
+                            {fmtCurrency(esc.price)}
+                          </div>
+
+                          {/* Progress tracking */}
+                          <div style={{ marginBottom: 16 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, fontWeight: 600, color: T.sub, marginBottom: 8 }}>
+                              <span>Verification Phase</span>
+                              <span>Stage {esc.stage} of 4</span>
+                            </div>
+                            
+                            <div style={{ display: "flex", gap: 4, height: 6, background: T.line, borderRadius: 3, overflow: "hidden", marginBottom: 12 }}>
+                              {milestones.map((_, i) => (
+                                <div
+                                  key={i}
+                                  style={{
+                                    flex: 1,
+                                    background: i < esc.stage ? T.green : "transparent"
+                                  }}
+                                />
+                              ))}
+                            </div>
+                            
+                            <ul style={{ paddingLeft: 16, margin: 0, fontSize: 12.5, color: T.ink, display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                              {milestones.map((m, i) => (
+                                <li
+                                  key={i}
+                                  style={{
+                                    color: i < esc.stage ? T.green : i === esc.stage - 1 ? T.ink : T.sub,
+                                    fontWeight: i === esc.stage - 1 ? 700 : 500,
+                                    listStyleType: i < esc.stage - 1 ? "'✓ '" : i === esc.stage - 1 ? "'● '" : "'○ '"
+                                  }}
+                                >
+                                  {m}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Interactive Area depending on Stage */}
+                          <div style={{ borderTop: `1px dashed ${T.line}`, paddingTop: 14, marginTop: 10 }}>
+                            {esc.stage === 1 && (
+                              <div>
+                                <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 10, lineHeight: 1.4 }}>
+                                  🔒 <strong>Awaiting Escrow Funding:</strong> The escrow account has been initialized. Please wire the purchase funds of <strong>{fmtCurrency(esc.price)}</strong> to our partner-bank milestone escrow account to secure the property.
+                                </div>
+                                <button
+                                  onClick={() => handleEscrowPayment(esc)}
+                                  style={{
+                                    background: T.green,
+                                    color: "#fff",
+                                    border: "none",
+                                    borderRadius: 8,
+                                    padding: "10px 16px",
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    boxShadow: "0 2px 6px rgba(14,90,58,0.25)"
+                                  }}
+                                >
+                                  ⚡ Wire/Deposit Purchase Funds (Simulation)
+                                </button>
+                              </div>
+                            )}
+
+                            {esc.stage === 2 && (
+                              <div>
+                                <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 10, lineHeight: 1.4 }}>
+                                  📁 <strong>Awaiting Deed Upload:</strong> Escrow deposit verified! (Ref: {esc.paymentRef}). Please upload the signed and executed Deed of Assignment to trigger AGIS title search verification.
+                                </div>
+                                
+                                {uploadingEscrowId === esc.id ? (
+                                  <div style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: 10, padding: 12 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, fontWeight: 600, color: T.ink, marginBottom: 6 }}>
+                                      <span>Uploading document...</span>
+                                      <span>{uploadProgress}%</span>
+                                    </div>
+                                    <div style={{ height: 6, background: T.line, borderRadius: 3, overflow: "hidden" }}>
+                                      <div style={{ height: "100%", width: `${uploadProgress}%`, background: T.teal, transition: "width .2s ease" }} />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div
+                                    style={{
+                                      background: T.card,
+                                      border: `1.5px dashed ${T.teal}`,
+                                      borderRadius: 10,
+                                      padding: "16px 20px",
+                                      textAlign: "center",
+                                      cursor: "pointer",
+                                      transition: "background .15s"
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.background = T.tealSoft + "22"}
+                                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                                    onClick={() => {
+                                      const input = document.createElement("input");
+                                      input.type = "file";
+                                      input.accept = ".pdf,.doc,.docx,.jpg,.png";
+                                      input.onchange = (e) => {
+                                        if (e.target.files?.[0]) {
+                                          simulateDeedUpload(esc, e.target.files[0].name);
+                                        }
+                                      };
+                                      input.click();
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 24, display: "block", marginBottom: 6 }}>📁</span>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: T.teal }}>
+                                      Click to upload Deed of Assignment
+                                    </span>
+                                    <div style={{ fontSize: 11, color: T.sub, marginTop: 4 }}>
+                                      PDF, JPG, PNG, DOC (max 10MB)
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {esc.stage === 3 && (
+                              <div>
+                                <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 10, lineHeight: 1.4 }}>
+                                  🔑 <strong>Awaiting Possession Confirmation:</strong> Title search verified and deed executed (Doc: <code>{esc.deedUrl}</code>). The keys are ready to be handed over on-site. Once you take possession of the property, confirm below to release the escrowed funds to the seller.
+                                </div>
+                                <button
+                                  onClick={() => handleEscrowRelease(esc)}
+                                  style={{
+                                    background: T.gold,
+                                    color: T.ink,
+                                    border: "none",
+                                    borderRadius: 8,
+                                    padding: "10px 16px",
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    boxShadow: "0 2px 6px rgba(201,162,39,0.25)"
+                                  }}
+                                >
+                                  🔑 Take Possession & Release Funds
+                                </button>
+                              </div>
+                            )}
+
+                            {esc.stage === 4 && (
+                              <div>
+                                <div style={{ fontSize: 12.5, color: T.green, fontWeight: 600, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                                  <span>🎉</span> Escrow Completed! Title deed transfer executed and funds released.
+                                </div>
+                                {onBuyAndOnboard && (
+                                  <button
+                                    onClick={() => {
+                                      onBuyAndOnboard(matchedDeal || {
+                                        id: esc.propertyId,
+                                        name: esc.propertyName,
+                                        district: esc.district || "Abuja",
+                                        asking: esc.price,
+                                        shortlet: { nightly: 145000, monthlyNet: 1450000, occ: 0.72 }
+                                      });
+                                    }}
+                                    style={{
+                                      background: `linear-gradient(135deg, ${T.teal}, ${T.ink})`,
+                                      color: "#fff",
+                                      border: "none",
+                                      borderRadius: 8,
+                                      padding: "10px 16px",
+                                      fontSize: 13,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                      boxShadow: "0 4px 10px rgba(14,107,117,0.3)"
+                                    }}
+                                  >
+                                    🚀 Onboard to Shortlet Manager & Start Earning
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* My Submitted Offers */}
@@ -1399,6 +1776,237 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
           </div>
         </>
       )}
+      {showKycForm && (
+        <KycModal
+          onClose={() => setShowKycForm(false)}
+          onSubmit={handleKycSubmit}
+          onAutoApprove={handleKycAutoApprove}
+          submitting={kycSimulating}
+        />
+      )}
+    </div>
+  );
+}
+
+function KycModal({ onClose, onSubmit, onAutoApprove, submitting }) {
+  const [fullName, setFullName] = useState("");
+  const [idType, setIdType] = useState("NIN");
+  const [idNumber, setIdNumber] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    if (!fullName || !idNumber) return;
+    onSubmit(fullName, idType, idNumber, fileName);
+  };
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setFileName(e.dataTransfer.files[0].name);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setFileName(e.target.files[0].name);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(12,43,31,.65)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#FFFFFF",
+          borderRadius: 24,
+          width: "min(460px, 100%)",
+          padding: "32px 28px",
+          boxShadow: "0 24px 48px rgba(12,43,31,0.22)",
+          animation: "slideup .25s ease-out",
+          color: T.ink,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
+          <div>
+            <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, margin: 0 }}>
+              🛡️ Submit Compliance KYC
+            </h3>
+            <p style={{ fontSize: 13, color: T.sub, margin: "4px 0 0 0" }}>
+              To bid on distress listings, FCT regulations require NIN/BVN identity validation.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "rgba(12,43,31,0.06)",
+              borderRadius: "50%",
+              width: 28,
+              height: 28,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 12,
+              color: T.sub,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleFormSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Full Legal Name
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Joy Chinemerem"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              style={{
+                width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10,
+                outline: "none", fontSize: 13.5, boxSizing: "border-box"
+              }}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                ID Document Type
+              </label>
+              <select
+                value={idType}
+                onChange={(e) => setIdType(e.target.value)}
+                style={{
+                  width: "100%", padding: "10.5px 12px", border: `1.5px solid ${T.line}`, borderRadius: 10,
+                  background: "#fff", fontSize: 13.5, boxSizing: "border-box"
+                }}
+              >
+                <option value="NIN">National ID (NIN)</option>
+                <option value="BVN">Bank Verification (BVN)</option>
+                <option value="Passport">Int'l Passport</option>
+                <option value="Driver_License">Driver's License</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Document ID Number
+              </label>
+              <input
+                type="text"
+                required
+                placeholder={idType === "NIN" || idType === "BVN" ? "11 digits" : "ID Number"}
+                value={idNumber}
+                onChange={(e) => setIdNumber(e.target.value)}
+                style={{
+                  width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10,
+                  outline: "none", fontSize: 13.5, boxSizing: "border-box"
+                }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Upload Identity Slip / Slip Scan (Mock)
+            </label>
+            <div
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              style={{
+                border: `2px dashed rgba(12,43,31,0.15)`,
+                borderRadius: 12,
+                padding: "16px 12px",
+                textAlign: "center",
+                background: dragActive ? "rgba(14,90,58,0.06)" : "rgba(12,43,31,0.02)",
+                cursor: "pointer",
+                position: "relative",
+                transition: "all .15s ease",
+              }}
+            >
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={handleFileChange}
+                style={{
+                  position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%"
+                }}
+              />
+              <span style={{ fontSize: 20 }}>📁</span>
+              <div style={{ fontSize: 12, color: T.sub, marginTop: 4 }}>
+                {fileName ? (
+                  <strong style={{ color: T.green }}>{fileName}</strong>
+                ) : (
+                  <>Drag & drop or <b>browse files</b></>
+                )}
+              </div>
+              <div style={{ fontSize: 10, color: T.sub, opacity: 0.8, marginTop: 2 }}>PDF or JPG up to 5MB</div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+            <button
+              type="submit"
+              disabled={submitting}
+              style={{
+                width: "100%", background: T.green, color: "#fff", border: "none",
+                borderRadius: 12, padding: "13px", fontWeight: 700, fontSize: 14,
+                cursor: submitting ? "not-allowed" : "pointer",
+                boxShadow: "0 4px 14px rgba(14,90,58,.22)"
+              }}
+            >
+              {submitting ? "Submitting compliance details..." : "Submit Compliance for Review"}
+            </button>
+            
+            <button
+              type="button"
+              onClick={onAutoApprove}
+              disabled={submitting}
+              style={{
+                width: "100%", background: T.goldSoft, color: "#7A5800", border: `1.5px solid ${T.gold}44`,
+                borderRadius: 12, padding: "10px", fontWeight: 700, fontSize: 12.5,
+                cursor: submitting ? "not-allowed" : "pointer",
+              }}
+            >
+              ⚡ Developer Bypass: Auto-Verify Account
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

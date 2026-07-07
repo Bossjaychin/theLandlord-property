@@ -719,7 +719,7 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
                     onClick={() => {
                       if (!loggedIn) { setSelectedUnitForCal(u); triggerAuthGate("guest", "view_calendar"); }
                       else if (currentUser.role !== "guest") { setSelectedUnitForCal(u); triggerAuthGate("guest", "view_calendar"); }
-                      else { setSelectedUnitForCal(u); setActiveTab("booking"); }
+                      else { setSelectedUnitForCal(u); }
                     }}
                     style={{
                       width: "100%", background: T.green, color: "#fff", border: "none", borderRadius: 10,
@@ -739,63 +739,6 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
         </div>
       )}
 
-      {/* ══ BOOKING CALENDAR TAB ══ */}
-      {activeTab === "booking" && selectedUnitForCal && isGuest && (
-        <div className="booking-view-grid" style={{ display: "grid", gridTemplateColumns: "1fr min(360px, 100%)", gap: 20, alignItems: "start" }}>
-          {/* Calendar */}
-          <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 20, padding: 24 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-              <button
-                onClick={() => { setActiveTab("browse"); setSelectedUnitForCal(null); }}
-                style={{ background: T.paper, border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer", color: T.sub, fontSize: 13, fontWeight: 600 }}
-              >
-                ← Back
-              </button>
-              <div>
-                <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: T.ink }}>{selectedUnitForCal.name}</div>
-                <div style={{ fontSize: 12, color: T.sub }}>📍 {selectedUnitForCal.district}, Abuja · {fmtN(selectedUnitForCal.nightly, cur)}/night</div>
-              </div>
-            </div>
-            <BookingCalendar
-              unit={selectedUnitForCal}
-              usingEmulator={usingEmulator}
-              activeBookings={getBookingsForUnit(selectedUnitForCal.id)}
-              onBookingConfirmed={handleBookingConfirmed}
-            />
-          </div>
-
-          {/* Property details sidebar */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 18 }}>
-              <SectionLabel>Property Details</SectionLabel>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {[
-                  ["Nightly Rate", fmtN(selectedUnitForCal.nightly, cur)],
-                  ["Location", `${selectedUnitForCal.district}, Abuja`],
-                  ["Rating", `★ ${selectedUnitForCal.rating}/5`],
-                  ["Unit Code", selectedUnitForCal.code],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, paddingBottom: 8, borderBottom: `1px solid ${T.line}` }}>
-                    <span style={{ color: T.sub, fontWeight: 600 }}>{k}</span>
-                    <span style={{ color: T.ink, fontWeight: 700 }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 18 }}>
-              <SectionLabel>Included Features</SectionLabel>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {selectedUnitForCal.features.map(f => <Pill key={f} bg={T.mint} color={T.green}>✓ {f}</Pill>)}
-              </div>
-            </div>
-
-            <div style={{ background: T.goldSoft, border: `1px solid ${T.gold}33`, borderRadius: 14, padding: "12px 16px", fontSize: 12.5, color: "#7A5800", lineHeight: 1.5 }}>
-              🔒 <b>Escrow-secured:</b> Payment is held in a partner-bank escrow and only released after check-in is verified. Your funds are fully protected.
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ══ TAB 2: HOST CONSOLE ══ */}
       {activeTab === "host" && (
@@ -1161,6 +1104,161 @@ export default function ShortletView({ cur, usingEmulator, user: _fbUser }) {
                 ? <><span>No account yet? </span><button onClick={() => setAuthMode("signup")} style={{ border: "none", background: "none", color: T.green, fontWeight: 700, cursor: "pointer" }}>Sign up</button></>
                 : <><span>Already registered? </span><button onClick={() => setAuthMode("signin")} style={{ border: "none", background: "none", color: T.green, fontWeight: 700, cursor: "pointer" }}>Sign in</button></>
               }
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ GUEST BOOKING DRAWER OVERLAY ══ */}
+      {selectedUnitForCal && isGuest && (
+        <div
+          onClick={() => setSelectedUnitForCal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(12, 43, 31, 0.4)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            zIndex: 100,
+            display: "flex",
+            justifyContent: "flex-end",
+            animation: "fadeIn .25s ease-out",
+          }}
+        >
+          <style>{`
+            @keyframes slideInRight {
+              from { transform: translateX(100%); }
+              to { transform: translateX(0); }
+            }
+            @keyframes fadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+            }
+          `}</style>
+          
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: T.paper,
+              width: "min(540px, 100%)",
+              height: "100%",
+              boxShadow: "-10px 0 40px rgba(12,43,31,0.15)",
+              display: "flex",
+              flexDirection: "column",
+              animation: "slideInRight .35s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+              position: "relative",
+              borderLeft: `1px solid ${T.line}`,
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: "20px 24px",
+              borderBottom: `1px solid ${T.line}`,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              background: T.card,
+              flexShrink: 0
+            }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <Pill bg={T.mint} color={T.green}>★ {selectedUnitForCal.rating} Rating</Pill>
+                  <Pill bg={T.tealSoft} color={T.teal}>{selectedUnitForCal.district}</Pill>
+                </div>
+                <h2 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: T.ink, margin: 0 }}>
+                  Book {selectedUnitForCal.name}
+                </h2>
+              </div>
+              <button
+                onClick={() => setSelectedUnitForCal(null)}
+                aria-label="Close booking drawer"
+                style={{
+                  border: "none",
+                  background: T.paper,
+                  borderRadius: 10,
+                  width: 36,
+                  height: 36,
+                  cursor: "pointer",
+                  fontSize: 16,
+                  color: T.sub,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "background .15s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = T.line}
+                onMouseLeave={e => e.currentTarget.style.background = T.paper}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+              
+              {/* Image & Price banner */}
+              <div style={{ position: "relative", borderRadius: 14, overflow: "hidden", height: 160, flexShrink: 0, background: T.ink }}>
+                <img
+                  src={selectedUnitForCal.district === "Guzape" 
+                    ? "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&q=80" 
+                    : "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80"}
+                  alt={selectedUnitForCal.name}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(12,43,31,0.85) 0%, transparent 60%)" }} />
+                <div style={{ position: "absolute", bottom: 14, left: 16, right: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-end", color: "#fff" }}>
+                  <div>
+                    <span style={{ fontSize: 11, opacity: 0.8, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase" }}>NIGHTLY RATE</span>
+                    <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 24, color: T.gold }}>
+                      {fmtN(selectedUnitForCal.nightly, cur)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize: 11, opacity: 0.8, fontWeight: 700 }}>Occupancy</span>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{Math.round(selectedUnitForCal.occ * 100)}% active</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Booking Calendar Widget */}
+              <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 }}>
+                <BookingCalendar
+                  unit={selectedUnitForCal}
+                  usingEmulator={usingEmulator}
+                  activeBookings={getBookingsForUnit(selectedUnitForCal.id)}
+                  onBookingConfirmed={handleBookingConfirmed}
+                />
+              </div>
+
+              {/* Amenities/Features */}
+              <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 }}>
+                <SectionLabel>Included Amenities</SectionLabel>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {selectedUnitForCal.features.map(f => (
+                    <Pill key={f} bg={T.mint} color={T.green}>✓ {f}</Pill>
+                  ))}
+                </div>
+              </div>
+
+              {/* Escrow note */}
+              <div style={{
+                background: T.goldSoft,
+                border: `1px solid ${T.gold}33`,
+                borderRadius: 14,
+                padding: "16px 20px",
+                fontSize: 13,
+                color: "#7A5800",
+                lineHeight: 1.5,
+                display: "flex",
+                gap: 10,
+                alignItems: "flex-start"
+              }}>
+                <span style={{ fontSize: 18 }}>🔒</span>
+                <div>
+                  <strong>Escrow Guarantee:</strong> Your payment is held securely in our partner-bank milestone escrow account. Funds are only released to the owner after your check-in is verified on-site.
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

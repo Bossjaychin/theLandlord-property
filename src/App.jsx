@@ -3482,6 +3482,7 @@ export default function App() {
             savedIds={savedIds}
             onToggleSave={toggleSave}
             onOpen={setModal}
+            onBuyAndOnboard={buyAndOnboard}
             onRegisterDistressProperty={async (newProp) => {
               if (!usingEmulator) return;
               try {

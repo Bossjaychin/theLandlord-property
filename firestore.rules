@@ -43,10 +43,24 @@ service cloud.firestore {
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
     }
 
+    // Offers Rules
+    match /offers/{offerId} {
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Escrows Rules
+    match /escrows/{escrowId} {
+      allow read: if isAuth() && (resource.data.buyerId == request.auth.uid || isAdmin());
+      allow create: if isAuth();
+      allow update: if isAuth() && (resource.data.buyerId == request.auth.uid || isAdmin());
+    }
+
     // Activity Logs Rules
     match /activity_logs/{logId} {
       allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow write: if false; // Only Cloud Functions can write activity logs
+      allow create: if isAuth();
     }
   }
 }

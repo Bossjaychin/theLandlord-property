@@ -910,6 +910,23 @@ const OffersView = ({ showToast }) => {
       let message = "";
       if (status === "Accepted") {
         message = `🏡 Congratulations! Your offer of ₦${offer.offerPrice.toLocaleString()} on "${offer.dealName}" has been ACCEPTED by the seller.\n\nOur team is initializing the escrow process. We will reach out to you shortly via WhatsApp.`;
+        
+        // Initialize escrow document in Firestore
+        await addDoc(collection(db, "escrows"), {
+          propertyId: offer.dealId || "",
+          propertyName: offer.dealName,
+          price: offer.offerPrice,
+          buyerId: offer.userId,
+          buyerName: offer.userName || "Buyer",
+          buyerEmail: offer.userEmail || "",
+          offerId: offer.id,
+          status: "In Progress",
+          stage: 1, // Stage 1: Awaiting Deposit
+          paymentStatus: "Unpaid",
+          fundsReleased: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
       } else if (status === "Declined") {
         message = `💼 Update on your offer for "${offer.dealName}". The seller has declined your offer of ₦${offer.offerPrice.toLocaleString()}.\n\nExplore other distress deals on the dashboard: thelandlordproperty.com`;
       } else if (status === "Counter-Offer") {
@@ -1104,6 +1121,423 @@ const OffersView = ({ showToast }) => {
    ────────────────────────────────────────────── */
 
 
+const VerificationsView = ({ showToast }) => {
+  const [users, setUsers] = useState([]);
+  const [inspections, setInspections] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loadingInspections, setLoadingInspections] = useState(true);
+  const [kycFilter, setKycFilter] = useState("Pending"); // "Pending" | "All"
+  const [inspectFilter, setInspectFilter] = useState("Pending"); // "Pending" | "All"
+
+  // Fetch users (specifically checking for KYC submissions)
+  useEffect(() => {
+    setLoadingUsers(true);
+    const q = query(collection(db, "users"), limit(200));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setUsers(list);
+      setLoadingUsers(false);
+    }, (err) => {
+      console.warn("[Admin VerificationsView] Firestore users error:", err.message);
+      setLoadingUsers(false);
+    });
+    return unsub;
+  }, []);
+
+  // Fetch inspections
+  useEffect(() => {
+    setLoadingInspections(true);
+    const q = query(collection(db, "inspection_requests"), orderBy("createdAt", "desc"), limit(200));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setInspections(list);
+      setLoadingInspections(false);
+    }, (err) => {
+      console.warn("[Admin VerificationsView] Firestore inspections error:", err.message);
+      setLoadingInspections(false);
+    });
+    return unsub;
+  }, []);
+
+  // Approve KYC
+  const handleApproveKyc = async (userRecord) => {
+    try {
+      const userRef = doc(db, "users", userRecord.id);
+      await updateDoc(userRef, {
+        verified: true,
+        kycStatus: "Passed"
+      });
+
+      // Send compliance notification to the user
+      await addDoc(collection(db, "notifications"), {
+        userId: userRecord.id,
+        title: "🛡️ KYC Verification Approved",
+        message: `Congratulations ${userRecord.kycDetails?.fullName || "there"}! Your compliance documents have been verified. Secure distress bidding & match queries are now fully active.`,
+        createdAt: serverTimestamp(),
+        read: false
+      });
+
+      // Log activity
+      await addDoc(collection(db, "activity_logs"), {
+        userId: userRecord.id,
+        action: "kyc_approved",
+        details: `KYC document verification approved by compliance admin.`,
+        createdAt: serverTimestamp()
+      });
+
+      showToast(`Approved KYC for ${userRecord.kycDetails?.fullName || userRecord.email} successfully!`);
+    } catch (err) {
+      console.error("KYC approval failed:", err);
+      showToast("KYC approval failed. Try again.");
+    }
+  };
+
+  // Reject KYC
+  const handleRejectKyc = async (userRecord) => {
+    try {
+      const userRef = doc(db, "users", userRecord.id);
+      await updateDoc(userRef, {
+        verified: false,
+        kycStatus: "Failed"
+      });
+
+      // Send failure notification
+      await addDoc(collection(db, "notifications"), {
+        userId: userRecord.id,
+        title: "⚠️ KYC Verification Mismatch",
+        message: `Your identity document verification failed to match BVN/NIN registers. Please check your credentials and resubmit.`,
+        createdAt: serverTimestamp(),
+        read: false
+      });
+
+      showToast(`Rejected KYC for ${userRecord.kycDetails?.fullName || userRecord.email}. Notification dispatched.`);
+    } catch (err) {
+      console.error("KYC rejection failed:", err);
+      showToast("KYC rejection failed. Try again.");
+    }
+  };
+
+  // Update inspection status
+  const handleUpdateInspectionStatus = async (insp, newStatus) => {
+    try {
+      const inspRef = doc(db, "inspection_requests", insp.id);
+      await updateDoc(inspRef, {
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+
+      // Send notification to the user requesting inspection
+      if (insp.userId && insp.userId !== "anonymous") {
+        await addDoc(collection(db, "notifications"), {
+          userId: insp.userId,
+          title: `Inspection Request Update`,
+          message: `Your request to inspect "${insp.dealName}" has been updated to: ${newStatus.toUpperCase()}.${newStatus === "Scheduled" ? ` Scheduled date: ${insp.preferredDate}.` : ""}`,
+          createdAt: serverTimestamp(),
+          read: false
+        });
+      }
+
+      showToast(`Inspection request status set to ${newStatus}.`);
+    } catch (err) {
+      console.error("Failed to update inspection status:", err);
+      showToast("Action failed. Try again.");
+    }
+  };
+
+  const pendingKycUsers = users.filter(u => u.kycStatus === "Pending");
+  const filteredKycUsers = kycFilter === "Pending" ? pendingKycUsers : users.filter(u => u.kycDetails);
+
+  const pendingInspections = inspections.filter(i => !i.status || i.status === "Pending");
+  const filteredInspections = inspectFilter === "Pending" ? pendingInspections : inspections;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24, animation: "slideup .25s ease-out" }}>
+      
+      {/* KYC QUEUE PANEL */}
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: "20px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: T.ink, margin: 0 }}>
+              🛡️ KYC Compliance Verification Queue
+            </h3>
+            <p style={{ fontSize: 12.5, color: T.sub, margin: "2px 0 0 0" }}>
+              Approve or reject BVN/NIN identity registration requests from active buyers.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 6, background: T.paper, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
+            {["Pending", "All"].map((f) => (
+              <button
+                key={f}
+                onClick={() => setKycFilter(f)}
+                style={{
+                  border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11.5, fontWeight: 700,
+                  cursor: "pointer", background: kycFilter === f ? T.ink : "transparent",
+                  color: kycFilter === f ? "#fff" : T.sub, transition: "all .12s"
+                }}
+              >
+                {f === "Pending" ? `Pending (${pendingKycUsers.length})` : "All Submissions"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loadingUsers ? (
+          <div style={{ padding: "30px 0", textAlign: "center", color: T.sub, fontSize: 13.5 }}>
+            Fetching compliance register...
+          </div>
+        ) : filteredKycUsers.length === 0 ? (
+          <div style={{ padding: "40px 0", textAlign: "center", background: T.paper, borderRadius: 12, border: `1px solid ${T.line}` }}>
+            <span style={{ fontSize: 24 }}>✨</span>
+            <div style={{ fontWeight: 700, fontSize: 14, color: T.ink, marginTop: 8 }}>
+              {kycFilter === "Pending" ? "KYC Queue is Empty" : "No Compliance Records"}
+            </div>
+            <div style={{ fontSize: 12, color: T.sub, marginTop: 2 }}>
+              All buyer identity requests are currently fully up to date.
+            </div>
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+              <thead>
+                <tr style={{ borderBottom: `1.5px solid ${T.line}`, color: T.sub, fontWeight: 700 }}>
+                  <th style={{ padding: "10px 12px" }}>Buyer Details</th>
+                  <th style={{ padding: "10px 12px" }}>Identity Verified</th>
+                  <th style={{ padding: "10px 12px" }}>Doc Type & ID</th>
+                  <th style={{ padding: "10px 12px" }}>File Attachment</th>
+                  <th style={{ padding: "10px 12px" }}>Submitted At</th>
+                  <th style={{ padding: "10px 12px" }}>Status</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredKycUsers.map((u) => {
+                  const details = u.kycDetails || {};
+                  return (
+                    <tr key={u.id} style={{ borderBottom: `1px solid ${T.line}` }}>
+                      <td style={{ padding: "12px" }}>
+                        <div style={{ fontWeight: 700, color: T.ink }}>{details.fullName || "Unspecified Name"}</div>
+                        <div style={{ fontSize: 11, color: T.sub }}>UID: {u.id.slice(0, 8)}... · {u.email}</div>
+                      </td>
+                      <td style={{ padding: "12px" }}>
+                        {u.verified ? (
+                          <span style={{ color: T.green, fontWeight: 700 }}>✓ Yes</span>
+                        ) : (
+                          <span style={{ color: T.risk, fontWeight: 700 }}>✗ No</span>
+                        )}
+                      </td>
+                      <td style={{ padding: "12px" }}>
+                        <div style={{ fontWeight: 600 }}>{details.idType || "N/A"}</div>
+                        <div style={{ fontSize: 11.5, color: T.sub, fontFamily: "monospace" }}>{details.idNumber || "—"}</div>
+                      </td>
+                      <td style={{ padding: "12px" }}>
+                        {details.documentName ? (
+                          <span style={{ color: T.teal, fontSize: 12.5, textDecoration: "underline", cursor: "pointer" }} title="Attachment Preview">
+                            📄 {details.documentName.length > 20 ? details.documentName.slice(0, 18) + "..." : details.documentName}
+                          </span>
+                        ) : (
+                          <span style={{ color: T.sub, fontStyle: "italic" }}>No upload</span>
+                        )}
+                      </td>
+                      <td style={{ padding: "12px", color: T.sub, fontSize: 12 }}>
+                        {details.submittedAt ? new Date(details.submittedAt).toLocaleDateString("en-NG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+                      </td>
+                      <td style={{ padding: "12px" }}>
+                        <span style={{
+                          background: u.kycStatus === "Passed" ? T.mint : u.kycStatus === "Pending" ? T.goldSoft : T.riskSoft,
+                          color: u.kycStatus === "Passed" ? T.green : u.kycStatus === "Pending" ? "#7A5800" : T.risk,
+                          padding: "2.5px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, display: "inline-block"
+                        }}>
+                          {u.kycStatus || "Unsubmitted"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "12px", textAlign: "right" }}>
+                        {u.kycStatus === "Pending" && (
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                            <button
+                              onClick={() => handleRejectKyc(u)}
+                              style={{
+                                border: "none", background: T.riskSoft, color: T.risk,
+                                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                cursor: "pointer", transition: "opacity .15s"
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = ".85"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              ✕ Reject
+                            </button>
+                            <button
+                              onClick={() => handleApproveKyc(u)}
+                              style={{
+                                border: "none", background: T.mint, color: T.green,
+                                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                cursor: "pointer", transition: "opacity .15s"
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = ".85"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              ✓ Approve
+                            </button>
+                          </div>
+                        )}
+                        {u.kycStatus === "Passed" && (
+                          <span style={{ color: T.green, fontSize: 12.5, fontWeight: 600 }}>Approved</span>
+                        )}
+                        {u.kycStatus === "Failed" && (
+                          <span style={{ color: T.risk, fontSize: 12.5, fontWeight: 600 }}>Rejected</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* INSPECTION MANAGER PANEL */}
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, padding: "20px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: T.ink, margin: 0 }}>
+              📋 Physical Inspection Request Manager
+            </h3>
+            <p style={{ fontSize: 12.5, color: T.sub, margin: "2px 0 0 0" }}>
+              Coordinate on-site site visits for prospective property buyers.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 6, background: T.paper, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
+            {["Pending", "All"].map((f) => (
+              <button
+                key={f}
+                onClick={() => setInspectFilter(f)}
+                style={{
+                  border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11.5, fontWeight: 700,
+                  cursor: "pointer", background: inspectFilter === f ? T.ink : "transparent",
+                  color: inspectFilter === f ? "#fff" : T.sub, transition: "all .12s"
+                }}
+              >
+                {f === "Pending" ? `Pending (${pendingInspections.length})` : "All Requests"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loadingInspections ? (
+          <div style={{ padding: "30px 0", textAlign: "center", color: T.sub, fontSize: 13.5 }}>
+            Loading inspection schedules...
+          </div>
+        ) : filteredInspections.length === 0 ? (
+          <div style={{ padding: "40px 0", textAlign: "center", background: T.paper, borderRadius: 12, border: `1px solid ${T.line}` }}>
+            <span style={{ fontSize: 24 }}>📅</span>
+            <div style={{ fontWeight: 700, fontSize: 14, color: T.ink, marginTop: 8 }}>
+              {inspectFilter === "Pending" ? "No Pending Inspections" : "No Inspection Requests"}
+            </div>
+            <div style={{ fontSize: 12, color: T.sub, marginTop: 2 }}>
+              There are no buyer requests for site visits currently.
+            </div>
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+              <thead>
+                <tr style={{ borderBottom: `1.5px solid ${T.line}`, color: T.sub, fontWeight: 700 }}>
+                  <th style={{ padding: "10px 12px" }}>Property</th>
+                  <th style={{ padding: "10px 12px" }}>Buyer Details</th>
+                  <th style={{ padding: "10px 12px" }}>Requested Date</th>
+                  <th style={{ padding: "10px 12px" }}>Created At</th>
+                  <th style={{ padding: "10px 12px" }}>Status</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredInspections.map((i) => {
+                  const status = i.status || "Pending";
+                  return (
+                    <tr key={i.id} style={{ borderBottom: `1px solid ${T.line}` }}>
+                      <td style={{ padding: "12px" }}>
+                        <div style={{ fontWeight: 700, color: T.ink }}>{i.dealName}</div>
+                        <div style={{ fontSize: 11.5, color: T.sub }}>📍 {i.district} · Ref ID: {i.dealId?.slice(0, 8)}...</div>
+                      </td>
+                      <td style={{ padding: "12px" }}>
+                        <div style={{ fontWeight: 600 }}>{i.userEmail || "anonymous"}</div>
+                        <div style={{ fontSize: 11, color: T.sub }}>UID: {i.userId?.slice(0, 8) || "—"}</div>
+                      </td>
+                      <td style={{ padding: "12px", fontWeight: 700, color: T.green }}>
+                        📅 {i.preferredDate || "—"}
+                      </td>
+                      <td style={{ padding: "12px", color: T.sub, fontSize: 12 }}>
+                        {i.createdAt ? (i.createdAt.toDate ? i.createdAt.toDate().toLocaleDateString("en-NG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : new Date(i.createdAt).toLocaleString()) : "—"}
+                      </td>
+                      <td style={{ padding: "12px" }}>
+                        <span style={{
+                          background: status === "Scheduled" ? T.tealSoft : status === "Completed" ? T.mint : status === "Cancelled" ? T.riskSoft : T.goldSoft,
+                          color: status === "Scheduled" ? T.teal : status === "Completed" ? T.green : status === "Cancelled" ? T.risk : "#7A5800",
+                          padding: "2.5px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, display: "inline-block"
+                        }}>
+                          {status}
+                        </span>
+                      </td>
+                      <td style={{ padding: "12px", textAlign: "right" }}>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          {(status === "Pending" || status === "Scheduled") && (
+                            <button
+                              onClick={() => handleUpdateInspectionStatus(i, "Cancelled")}
+                              style={{
+                                border: "none", background: "transparent", color: T.risk,
+                                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                cursor: "pointer", border: `1.5px solid ${T.risk}33`
+                              }}
+                            >
+                              Decline
+                            </button>
+                          )}
+                          {status === "Pending" && (
+                            <button
+                              onClick={() => handleUpdateInspectionStatus(i, "Scheduled")}
+                              style={{
+                                border: "none", background: T.teal, color: "#fff",
+                                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                cursor: "pointer", boxShadow: "0 2px 8px rgba(14,107,117,.18)"
+                              }}
+                            >
+                              Schedule Visit
+                            </button>
+                          )}
+                          {status === "Scheduled" && (
+                            <button
+                              onClick={() => handleUpdateInspectionStatus(i, "Completed")}
+                              style={{
+                                border: "none", background: T.green, color: "#fff",
+                                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                cursor: "pointer", boxShadow: "0 2px 8px rgba(14,90,58,.18)"
+                              }}
+                            >
+                              ✓ Mark Done
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+};
+
+
 export default function Admin({ initialDeals, onDealsChange, onBack }) {
   const [unlocked, setUnlocked] = useState(false);
   const [adminTab, setAdminTab] = useState("deals"); // "deals" | "analytics"
@@ -1199,7 +1633,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
 
           {/* Admin Tab Switcher */}
           <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,.7)", border: `1.5px solid ${T.line}`, borderRadius: 12, padding: 3 }}>
-            {[["deals", "📋", "Deal Management"], ["offers", "🤝", "Buyer Offers"], ["analytics", "📊", "Analytics"]].map(([k, icon, label]) => (
+            {[["deals", "📋", "Deal Management"], ["offers", "🤝", "Buyer Offers"], ["verifications", "🛡️", "KYC & Inspections"], ["analytics", "📊", "Analytics"]].map(([k, icon, label]) => (
               <button
                 key={k}
                 onClick={() => setAdminTab(k)}
@@ -1210,7 +1644,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
                   fontSize: 12.5,
                   fontWeight: adminTab === k ? 700 : 600,
                   cursor: "pointer",
-                  background: adminTab === k ? (k === "analytics" ? T.teal : k === "offers" ? "#6B3FA0" : T.ink) : "transparent",
+                  background: adminTab === k ? (k === "analytics" ? T.teal : k === "offers" ? "#6B3FA0" : k === "verifications" ? T.green : T.ink) : "transparent",
                   color: adminTab === k ? "#fff" : T.sub,
                   transition: "all .18s ease",
                   display: "flex",
@@ -1233,6 +1667,9 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
 
         {/* Offers tab */}
         {adminTab === "offers" && <OffersView showToast={showToast} />}
+
+        {/* Verifications tab */}
+        {adminTab === "verifications" && <VerificationsView showToast={showToast} />}
 
         {/* Analytics tab */}
         {adminTab === "analytics" && <AnalyticsView deals={deals} />}
