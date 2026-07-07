@@ -1164,9 +1164,9 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
           background: T.paper,
           borderRadius: 20,
           width: "min(760px, 100%)",
-          maxHeight: "94vh",
-          overflowY: "auto",
-          padding: 0,
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
           overflow: "hidden",
         }}
       >
@@ -1253,7 +1253,7 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
         </div>
 
         {/* ── Modal body (scrollable) ── */}
-        <div className="deal-modal-body" style={{ padding: 22, overflowY: "auto" }}>
+        <div className="deal-modal-body" style={{ padding: 22, overflowY: "auto", flex: 1 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
           <div>
             <SectionLabel>AI Deal Intelligence Report</SectionLabel>
@@ -1308,6 +1308,41 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
             </div>
           ))}
         </div>
+
+        {isVerified && (
+          <div style={{ marginTop: 14 }}>
+            <button
+              onClick={() => {
+                const formEl = document.getElementById("offer-form-section");
+                if (formEl) {
+                  formEl.scrollIntoView({ behavior: "smooth" });
+                }
+                const submitBtn = document.getElementById("submit-offer-trigger-btn");
+                if (submitBtn) {
+                  submitBtn.click();
+                }
+              }}
+              style={{
+                width: "100%",
+                background: T.green,
+                color: "#fff",
+                border: "none",
+                borderRadius: 12,
+                padding: "14px 20px",
+                fontSize: 14.5,
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                boxShadow: "0 4px 12px rgba(14,90,58,0.2)"
+              }}
+            >
+              Submit Purchase Offer to Escrow
+            </button>
+          </div>
+        )}
 
         {/* trust and verification + AI forensics trigger — only shown to verified users */}
         {isVerified && (
@@ -1469,11 +1504,26 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
         {isVerified && (
         <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 16, marginTop: 14 }}>
           <SectionLabel>Escrow — funds released by milestone</SectionLabel>
-          <div className="escrow-steps" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div className="escrow-steps" style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "10px 0" }}>
             {steps.map((s, i) => (
               <button
                 key={s}
-                onClick={() => setStep(i + 1)}
+                onClick={() => {
+                  if (i === 0) {
+                    const formEl = document.getElementById("offer-form-section");
+                    if (formEl) {
+                      formEl.scrollIntoView({ behavior: "smooth" });
+                    }
+                    const submitBtn = document.getElementById("submit-offer-trigger-btn");
+                    if (submitBtn) {
+                      submitBtn.click();
+                    }
+                  } else {
+                    if (onToast) {
+                      onToast(`Milestone ${i + 1}: After submitting your offer and gaining seller acceptance, go to your Profile to fund the escrow and execute the deed.`);
+                    }
+                  }
+                }}
                 style={{
                   flex: "1 1 140px",
                   textAlign: "left",
@@ -1491,6 +1541,7 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
               </button>
             ))}
           </div>
+
           <div style={{ fontSize: 12, color: T.sub, marginTop: 8 }}>
             Held with a licensed partner bank. Pay in ₦ locally or from abroad — Paystack, bank transfer, or domiciliary FX.
           </div>
@@ -2262,11 +2313,12 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
   // Past offers panel
   if (stage === "idle") {
     return (
-      <div style={{ marginTop: 14 }}>
+      <div id="offer-form-section" style={{ marginTop: 14 }}>
         <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: pastOffers.length > 0 ? 14 : 0 }}>
             <SectionLabel color={T.purple}>Make an Offer</SectionLabel>
             <button
+              id="submit-offer-trigger-btn"
               onClick={() => setStage("form")}
               style={{
                 background: `linear-gradient(135deg, ${T.purple}, #8B52C9)`,
@@ -2359,7 +2411,7 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
 
   // Offer form
   return (
-    <div style={{ marginTop: 14, background: T.card, border: `1.5px solid ${T.purple}33`, borderRadius: 14, padding: 20, animation: "slideup .25s ease" }}>
+    <div id="offer-form-section" style={{ marginTop: 14, background: T.card, border: `1.5px solid ${T.purple}33`, borderRadius: 14, padding: 20, animation: "slideup .25s ease" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <SectionLabel color={T.purple}>✦ Submit Purchase Offer</SectionLabel>
         <button onClick={() => setStage("idle")} style={{ border: "none", background: "none", color: T.sub, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>✕</button>
