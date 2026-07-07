@@ -181,139 +181,380 @@ const StatusPill = ({ status }) => {
   );
 };
 
-/* ---------- PIN Gate ---------- */
+/* ---------- Admin Login Gate ---------- */
 
-const PinGate = ({ onUnlock }) => {
-  const [pin, setPin] = useState("");
-  const [shake, setShake] = useState(false);
-  const [dots, setDots] = useState([false, false, false, false]);
+const AdminLoginGate = ({ onUnlock }) => {
+  const [mode, setMode] = useState("login"); // "login" | "forgot" | "reset"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  
+  // Forgot password states
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryPin, setRecoveryPin] = useState("");
+  
+  // Reset password states
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const handleDigit = (d) => {
-    setPin((prev) => {
-      if (prev.length >= 4) return prev;
-      const next = prev + d;
-      setDots([false, false, false, false].map((_, i) => i < next.length));
-      if (next.length === 4) {
-        if (next === ADMIN_PIN) {
-          setTimeout(() => onUnlock(), 200);
-        } else {
-          setTimeout(() => {
-            setShake(true);
-            setTimeout(() => {
-              setShake(false);
-              setPin("");
-              setDots([false, false, false, false]);
-            }, 400);
-          }, 100);
-        }
+  // Retrieve current active credentials
+  const getCredentials = () => {
+    try {
+      const stored = localStorage.getItem("lp_admin_creds");
+      if (stored) {
+        return JSON.parse(stored);
       }
-      return next;
-    });
+    } catch (e) {
+      console.warn("Could not read admin credentials:", e);
+    }
+    return { email: "admin@thelandlord.ai", password: "adminpass" };
   };
 
-  const handleBack = () => {
-    setPin((prev) => {
-      const next = prev.slice(0, -1);
-      setDots([false, false, false, false].map((_, i) => i < next.length));
-      return next;
-    });
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setError("");
+    const creds = getCredentials();
+    if (email.toLowerCase().trim() === creds.email.toLowerCase().trim() && password === creds.password) {
+      onUnlock();
+    } else {
+      setError("Invalid admin email or password. Please try again.");
+    }
   };
 
-  // Wire up physical keyboard inputs (numbers + backspace)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key >= "0" && e.key <= "9") {
-        handleDigit(e.key);
-      } else if (e.key === "Backspace") {
-        handleBack();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  const handleVerifyRecovery = (e) => {
+    e.preventDefault();
+    setError("");
+    const creds = getCredentials();
+    if (recoveryEmail.toLowerCase().trim() !== creds.email.toLowerCase().trim()) {
+      setError("Email address not recognized in compliance register.");
+      return;
+    }
+    if (recoveryPin === "1234") {
+      setMode("reset");
+    } else {
+      setError("Invalid Security Recovery PIN. Check your admin credentials.");
+    }
+  };
 
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
+  const handleResetPassword = (e) => {
+    e.preventDefault();
+    setError("");
+    if (newPassword.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    try {
+      const currentCreds = getCredentials();
+      const updated = { ...currentCreds, password: newPassword };
+      localStorage.setItem("lp_admin_creds", JSON.stringify(updated));
+      setSuccess("Password reset successfully! Log in with your new credentials.");
+      setError("");
+      setMode("login");
+      setPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setError("Failed to save new credentials.");
+    }
+  };
 
   return (
-    <div style={{ minHeight: "100vh", background: T.ink, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 28, padding: 24 }}>
-      <div style={{ textAlign: "center" }}>
-        <img
-          src="/logo_mark.png"
-          alt="The Landlord Property"
-          style={{
-            height: 56,
-            width: "auto",
-            objectFit: "contain",
-            display: "block",
-            margin: "0 auto 16px",
-          }}
-        />
-        <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 22, color: "#fff" }}>Admin Panel</div>
-        <div style={{ fontSize: 13, color: "rgba(255,255,255,.55)", marginTop: 4 }}>Enter your 4-digit PIN</div>
-      </div>
+    <div style={{ minHeight: "100vh", background: T.ink, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ background: "#FFFFFF", borderRadius: 24, width: "min(400px, 100%)", padding: "36px 30px", boxShadow: "0 20px 48px rgba(12,43,31,0.3)" }}>
+        
+        {/* Logo and title */}
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: T.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, color: "#fff", margin: "0 auto 12px" }}>
+            L
+          </div>
+          <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, color: T.ink, margin: 0 }}>
+            {mode === "login" ? "Admin Portal Access" : mode === "forgot" ? "Reset Admin Password" : "Set New Password"}
+          </h3>
+          <p style={{ fontSize: 12.5, color: T.sub, margin: "6px 0 0 0", lineHeight: 1.4 }}>
+            {mode === "login" 
+              ? "Authorized compliance officers and fund administrators only."
+              : mode === "forgot"
+              ? "Provide your email and the 4-digit safety recovery PIN (1234) to reset."
+              : "Choose a secure password for your administrative account."}
+          </p>
+        </div>
 
-      {/* dots */}
-      <div style={{ display: "flex", gap: 16, animation: shake ? "shake .3s ease" : "none" }}>
-        {dots.map((filled, i) => (
-          <div
-            key={i}
-            style={{
-              width: 16,
-              height: 16,
-              borderRadius: "50%",
-              boxSizing: "border-box",
-              border: filled ? `2px solid ${T.gold}` : "2px solid rgba(255, 255, 255, 0.7)",
-              background: filled ? T.gold : "transparent",
-              transition: "background .15s ease, border-color .15s ease",
-            }}
-          />
-        ))}
-      </div>
+        {error && (
+          <div style={{ background: T.riskSoft, border: `1px solid ${T.risk}33`, color: T.risk, padding: "10px 12px", borderRadius: 10, fontSize: 12.5, marginBottom: 16, lineHeight: 1.4 }}>
+            ⚠️ {error}
+          </div>
+        )}
 
-      {/* keypad */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 72px)", gap: 12 }}>
-        {keys.map((k, i) => {
-          if (k === "") {
-            return <div key={i} style={{ height: 64 }} />;
-          }
-          return (
+        {success && (
+          <div style={{ background: T.mint, border: `1px solid ${T.green}33`, color: T.green, padding: "10px 12px", borderRadius: 10, fontSize: 12.5, marginBottom: 16, lineHeight: 1.4 }}>
+            ✅ {success}
+          </div>
+        )}
+
+        {/* ── MODE: LOGIN ── */}
+        {mode === "login" && (
+          <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Admin Email
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="admin@thelandlord.ai"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box" }}
+              />
+            </div>
+
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => { setMode("forgot"); setError(""); setSuccess(""); }}
+                  style={{ border: "none", background: "none", color: T.green, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}
+                >
+                  Forgot Password?
+                </button>
+              </div>
+              <input
+                type="password"
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box" }}
+              />
+            </div>
+
             <button
-              key={i}
-              onClick={() => k === "⌫" ? handleBack() : handleDigit(k)}
+              type="submit"
               style={{
-                height: 64,
-                borderRadius: 14,
-                border: "none",
-                background: k === "⌫" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.1)",
-                color: "#fff",
-                fontSize: k === "⌫" ? 20 : 22,
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "'Instrument Sans', sans-serif",
-                transition: "background .1s ease",
+                background: T.ink, color: "#fff", border: "none", borderRadius: 12, padding: "13px",
+                fontWeight: 700, fontSize: 13.5, cursor: "pointer", marginTop: 4,
+                boxShadow: "0 4px 14px rgba(12,43,31,.25)"
               }}
-              onMouseEnter={(e) => (e.target.style.background = "rgba(255,255,255,.18)")}
-              onMouseLeave={(e) => (e.target.style.background = k === "⌫" ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.1)")}
             >
-              {k}
+              Sign In to Dashboard
             </button>
-          );
-        })}
-      </div>
+          </form>
+        )}
 
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,.45)", letterSpacing: 0.8, textTransform: "uppercase", marginTop: 4 }}>
-        or type your PIN
-      </div>
+        {/* ── MODE: FORGOT PASSWORD ── */}
+        {mode === "forgot" && (
+          <form onSubmit={handleVerifyRecovery} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="admin@thelandlord.ai"
+                value={recoveryEmail}
+                onChange={(e) => setRecoveryEmail(e.target.value)}
+                style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box" }}
+              />
+            </div>
 
-      <style>{`
-        @keyframes shake {
-          0%,100%{transform:translateX(0)}
-          20%{transform:translateX(-8px)}
-          40%{transform:translateX(8px)}
-          60%{transform:translateX(-6px)}
-          80%{transform:translateX(6px)}
-        }
-      `}</style>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                4-Digit Security Recovery Code
+              </label>
+              <input
+                type="password"
+                required
+                maxLength={4}
+                placeholder="e.g. 1234"
+                value={recoveryPin}
+                onChange={(e) => setRecoveryPin(e.target.value)}
+                style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box", textAlign: "center", letterSpacing: 3, fontWeight: 800 }}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+              <button
+                type="submit"
+                style={{
+                  background: T.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px",
+                  fontWeight: 700, fontSize: 13.5, cursor: "pointer"
+                }}
+              >
+                Verify Recovery Details
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode("login"); setError(""); setSuccess(""); }}
+                style={{
+                  background: "transparent", color: T.sub, border: `1.5px solid ${T.line}`, borderRadius: 12, padding: "11px",
+                  fontWeight: 700, fontSize: 12.5, cursor: "pointer"
+                }}
+              >
+                Back to Login
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ── MODE: RESET PASSWORD ── */}
+        {mode === "reset" && (
+          <form onSubmit={handleResetPassword} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                New Password
+              </label>
+              <input
+                type="password"
+                required
+                placeholder="At least 6 characters"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                required
+                placeholder="Retype password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                style={{ width: "100%", padding: "11px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, outline: "none", fontSize: 13.5, boxSizing: "border-box" }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              style={{
+                background: T.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px",
+                fontWeight: 700, fontSize: 13.5, cursor: "pointer", marginTop: 4,
+                boxShadow: "0 4px 14px rgba(14,90,58,.22)"
+              }}
+            >
+              Save & Update Password
+            </button>
+          </form>
+        )}
+
+      </div>
+    </div>
+  );
+};
+
+/* ---------- Change Password Modal ---------- */
+
+const ChangePasswordModal = ({ onClose, showToast }) => {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const getCredentials = () => {
+    try {
+      const stored = localStorage.getItem("lp_admin_creds");
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return { email: "admin@thelandlord.ai", password: "adminpass" };
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setError("");
+
+    const creds = getCredentials();
+    if (currentPassword !== creds.password) {
+      setError("Current password is incorrect.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match.");
+      return;
+    }
+
+    try {
+      const updated = { ...creds, password: newPassword };
+      localStorage.setItem("lp_admin_creds", JSON.stringify(updated));
+      showToast("Password updated successfully! ✓");
+      onClose();
+    } catch (err) {
+      setError("Failed to save new credentials.");
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(12,43,31,.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 24, maxWidth: 400, width: "100%", color: T.ink }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <h3 style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 18, margin: 0 }}>🔑 Change Admin Password</h3>
+          <button onClick={onClose} style={{ border: "none", background: "none", color: T.sub, fontSize: 16, cursor: "pointer" }}>✕</button>
+        </div>
+
+        {error && (
+          <div style={{ background: T.riskSoft, color: T.risk, padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 4 }}>CURRENT PASSWORD</label>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.line}`, borderRadius: 8, outline: "none", fontSize: 13, boxSizing: "border-box" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 4 }}>NEW PASSWORD</label>
+            <input
+              type="password"
+              required
+              placeholder="At least 6 characters"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.line}`, borderRadius: 8, outline: "none", fontSize: 13, boxSizing: "border-box" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 4 }}>CONFIRM NEW PASSWORD</label>
+            <input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.line}`, borderRadius: 8, outline: "none", fontSize: 13, boxSizing: "border-box" }}
+            />
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 10, justifyContent: "flex-end" }}>
+            <Btn kind="ghost" onClick={onClose}>Cancel</Btn>
+            <Btn type="submit" kind="primary">Update Password</Btn>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
@@ -1551,6 +1792,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
   const [toast, setToast] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmAdvance, setConfirmAdvance] = useState(null);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   // Persist to localStorage and notify parent
   useEffect(() => {
@@ -1604,7 +1846,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
     return true;
   });
 
-  if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
+  if (!unlocked) return <AdminLoginGate onUnlock={() => setUnlocked(true)} />;
 
 
   return (
@@ -1658,6 +1900,7 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
             ))}
           </div>
 
+          <Btn kind="ghost" small onClick={() => setShowChangePassword(true)}>🔑 Change Password</Btn>
           <Btn kind="ghost" small onClick={onBack}>← Back to App</Btn>
           {adminTab === "deals" && <Btn kind="primary" small onClick={() => setModal("new")}>+ New Deal</Btn>}
         </div>
@@ -1872,6 +2115,14 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
           </div>
         );
       })()}
+
+      {/* Change Password Modal */}
+      {showChangePassword && (
+        <ChangePasswordModal
+          onClose={() => setShowChangePassword(false)}
+          showToast={showToast}
+        />
+      )}
 
       {/* Toast */}
       {toast && (
