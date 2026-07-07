@@ -22,7 +22,10 @@ service cloud.firestore {
     // User Profile Rules
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && (!request.resource.data.keys().hasAll(['role']) || request.resource.data.role != 'admin');
+      allow create: if isOwner(userId) && 
+        (!request.resource.data.keys().hasAll(['role']) || request.resource.data.role != 'admin') &&
+        (!request.resource.data.keys().hasAll(['verified']) || request.resource.data.verified == false) &&
+        (!request.resource.data.keys().hasAll(['kycStatus']) || request.resource.data.kycStatus == 'Pending' || request.resource.data.kycStatus == null);
       allow update: if isAdmin() || (isOwner(userId) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'verified', 'kycStatus'])));
       allow delete: if isAdmin();
     }
@@ -49,7 +52,9 @@ service cloud.firestore {
     // Offers Rules
     match /offers/{offerId} {
       allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow create: if isAuth() && 
+        request.resource.data.userId == request.auth.uid &&
+        (!request.resource.data.keys().hasAll(['status']) || request.resource.data.status == 'Submitted');
       allow update, delete: if isAdmin();
     }
 
@@ -60,8 +65,25 @@ service cloud.firestore {
       allow update: if isAuth() && (
         isAdmin() || (
           resource.data.buyerId == request.auth.uid &&
-          // Buyer can progress stages or release funds, but CANNOT modify price or buyer ID
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'buyerId'])
+          // Buyer can only update their escrow under strict conditions based on the current stage:
+          (
+            // Stage 1: Buyer submitting payment verification
+            (resource.data.stage == 1 && 
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paymentBank', 'paymentRef', 'paymentReceiptUrl', 'paymentSubmittedAt', 'updatedAt']) &&
+             request.resource.data.paymentStatus == 'Pending Verification') ||
+            
+            // Stage 2: Buyer signing/executing Deed of Assignment
+            (resource.data.stage == 2 && 
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deedStatus', 'deedUrl', 'signatureUrl', 'deedUploadedAt', 'updatedAt']) &&
+             request.resource.data.deedStatus == 'Pending Verification') ||
+            
+            // Stage 3: Buyer taking possession & releasing funds
+            (resource.data.stage == 3 && 
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stage', 'status', 'fundsReleased', 'updatedAt']) &&
+             request.resource.data.stage == 4 &&
+             request.resource.data.status == 'Completed' &&
+             request.resource.data.fundsReleased == true)
+          )
         )
       );
       allow delete: if isAdmin();
@@ -70,7 +92,7 @@ service cloud.firestore {
     // Activity Logs Rules
     match /activity_logs/{logId} {
       allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow create: if isAuth() && (request.resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // Inspection Requests Rules
