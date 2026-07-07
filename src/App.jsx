@@ -2218,7 +2218,6 @@ const WhatsAppPanel = ({ open, setOpen }) => {
   );
 };
 
-/* ─── Offer Form Component ─── */
 const OfferForm = ({ deal, user, cur, onToast }) => {
   const [stage, setStage] = useState("idle"); // idle | form | submitting | done
   const [pastOffers, setPastOffers] = useState([]);
@@ -2230,7 +2229,8 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
     note: "",
   });
 
-  // Load past offers from Firestore for this deal & user
+  const isInstalmentSupported = deal?.instalmentAllowed || deal?.id === "d1" || deal?.id === "d3" || deal?.id === "d6" || (deal?.urgency && deal.urgency.toLowerCase().includes("flexible"));
+  const isFinancingInvalid = offerData?.financing === "mortgage" || (offerData?.financing === "installment" && !isInstalmentSupported);
   useEffect(() => {
     if (!user?.uid || !deal?.id) return;
     setLoadingPast(true);
@@ -2495,6 +2495,51 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
               </button>
             ))}
           </div>
+
+          {offerData.financing === "mortgage" && (
+            <div style={{
+              marginTop: 10,
+              background: T.riskSoft,
+              border: `1px solid ${T.risk}`,
+              color: T.risk,
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontSize: 12.5,
+              lineHeight: 1.45
+            }}>
+              <strong>🏦 Mortgage Financing Unavailable:</strong> Mortgage financing is not available at the moment. Try again later or you will be notified when it becomes available.
+            </div>
+          )}
+
+          {offerData.financing === "installment" && !isInstalmentSupported && (
+            <div style={{
+              marginTop: 10,
+              background: T.amberSoft,
+              border: `1px solid ${T.gold}`,
+              color: "#7A5800",
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontSize: 12.5,
+              lineHeight: 1.45
+            }}>
+              <strong>🤝 Instalment Plan Restricted:</strong> Instalment payment plans are only applicable to select listings. This property requires full cash settlement.
+            </div>
+          )}
+
+          {offerData.financing === "installment" && isInstalmentSupported && (
+            <div style={{
+              marginTop: 10,
+              background: T.tealSoft,
+              border: `1px solid ${T.teal}`,
+              color: T.teal,
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontSize: 12.5,
+              lineHeight: 1.45
+            }}>
+              <strong>🤝 Instalment Plan Eligible:</strong> This property supports a flexible payment structure. Default layout is 60% down payment, 40% spread over 90 days.
+            </div>
+          )}
         </div>
 
         {/* Settlement timeline */}
@@ -2548,15 +2593,15 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
 
         <button
           type="submit"
-          disabled={stage === "submitting" || !offerData.offerPrice}
+          disabled={stage === "submitting" || !offerData.offerPrice || isFinancingInvalid}
           style={{
-            background: stage === "submitting" || !offerData.offerPrice
+            background: stage === "submitting" || !offerData.offerPrice || isFinancingInvalid
               ? T.line
               : `linear-gradient(135deg, ${T.purple}, #8B52C9)`,
-            color: stage === "submitting" || !offerData.offerPrice ? T.sub : "#fff",
+            color: stage === "submitting" || !offerData.offerPrice || isFinancingInvalid ? T.sub : "#fff",
             border: "none", borderRadius: 12, padding: "13px 0",
-            fontWeight: 800, fontSize: 15, cursor: !offerData.offerPrice ? "default" : "pointer",
-            transition: "all .15s", boxShadow: offerData.offerPrice ? "0 4px 14px rgba(107,63,160,.3)" : "none",
+            fontWeight: 800, fontSize: 15, cursor: !offerData.offerPrice || isFinancingInvalid ? "default" : "pointer",
+            transition: "all .15s", boxShadow: offerData.offerPrice && !isFinancingInvalid ? "0 4px 14px rgba(107,63,160,.3)" : "none",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8
           }}
         >
@@ -2565,7 +2610,7 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
               <span style={{ width: 16, height: 16, border: "2.5px solid rgba(255,255,255,.3)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin .7s linear infinite" }} />
               Submitting Offer…
             </>
-          ) : "✦ Submit Offer →"}
+          ) : isFinancingInvalid ? "Financing Option Restricted" : "✦ Submit Offer →"}
         </button>
 
         <div style={{ fontSize: 11.5, color: T.sub, textAlign: "center" }}>
