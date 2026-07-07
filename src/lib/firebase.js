@@ -13,8 +13,8 @@ const firebaseConfig = {
   projectId: "thelandlord-property",
   storageBucket: "thelandlord-property.firebasestorage.app",
   messagingSenderId: "739114104997",
-  appId: "1:739114104997:web:d2bde4aa29fcf6ec7ef54c",
-  measurementId: "G-DZK6KJEW2F"
+  appId: "1:739114104997:web:2a1995d42122399a7ef54c",
+  measurementId: "G-WW8S7GE8ZC"
 };
 
 const app = initializeApp(firebaseConfig);
