@@ -10,6 +10,7 @@ import AuthModal from "./AuthModal";
 import Profile from "./Profile";
 import ShortletView from "./ShortletView";
 import About from "./About";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 
 /* ============================================================
    THE LANDLORD PROPERTY — Launch Edition Web App
@@ -2865,19 +2866,16 @@ const NotificationBell = ({ user }) => {
 /* ---------------- App ---------------- */
 
 export default function App() {
-  const [tab, setTab] = useState(() => {
-    if (typeof window !== "undefined") {
-      const hash = window.location.hash.replace("#", "");
-      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin", "about"].includes(hash)) {
-        return hash;
-      }
-      const path = window.location.pathname.replace(/^\/|\/$/g, "");
-      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin", "about"].includes(path)) {
-        return path;
-      }
-    }
-    return "deals";
-  });
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const tab = useMemo(() => {
+    const path = location.pathname;
+    if (path === "/") return "deals";
+    const key = path.substring(1);
+    return ["deals", "listings", "marketplace", "shortlet", "profile", "admin", "about"].includes(key) ? key : "deals";
+  }, [location.pathname]);
+
   const [cur, setCur] = useState("NGN");
   const [modal, setModal] = useState(null);
   const [waOpen, setWaOpen] = useState(false);
@@ -3113,26 +3111,6 @@ export default function App() {
     return unsub;
   }, [user]);
 
-  // Sync URL hash with active tab state
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.location.hash = tab;
-    }
-  }, [tab]);
-
-  // Listen for hash changes to support back/forward browser navigation
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleHashChange = () => {
-      const hash = window.location.hash.replace("#", "");
-      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin", "about"].includes(hash)) {
-        setTab(hash);
-      }
-    };
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
-  }, []);
-
   // Seed database if emulator is active and not seeded yet
   useEffect(() => {
     if (!usingEmulator) return;
@@ -3253,7 +3231,7 @@ export default function App() {
             },
           ]
     );
-    setTab("shortlet");
+    navigate("/shortlet");
     setToast("Deal secured in escrow → property onboarded. The AI is now pricing it and filling the calendar.");
     setTimeout(() => setToast(null), 4200);
   };
@@ -3282,7 +3260,7 @@ export default function App() {
             });
           }
         }}
-        onBack={() => setTab("deals")}
+        onBack={() => navigate("/")}
       />
     );
   }
@@ -3618,7 +3596,7 @@ export default function App() {
                 <button
                   key={k}
                   className="nav-btn"
-                  onClick={() => setTab(k)}
+                  onClick={() => navigate(k === "deals" ? "/" : "/" + k)}
                   style={{
                     border: "none",
                     borderRadius: 10,
@@ -3831,30 +3809,11 @@ export default function App() {
           </div>
         )}
 
-        {tab === "deals" ? (
-          <DealsView cur={cur} onOpen={setModal} query={query} setQuery={setQuery} dealsList={usingEmulator ? dbProperties : dealsList} onAiSearch={handleAiSearch} aiResults={aiResults} aiSearching={aiSearching} usingEmulator={usingEmulator} savedIds={savedIds} onToggleSave={toggleSave} compareIds={compareIds} onToggleCompare={toggleCompare} />
-        ) : tab === "listings" ? (
-          <Listings
-            dealsList={usingEmulator ? dbProperties : dealsList}
-            cur={cur}
-            onOpen={setModal}
-            user={user}
-          />
-        ) : tab === "marketplace" ? (
-          <Marketplace cur={cur} onWhatsAppOpen={() => setWaOpen(true)} usingEmulator={usingEmulator} dataConnect={dataConnect} user={user} onSignInRequest={() => setShowAuth(true)} distressDeals={usingEmulator ? dbProperties : dealsList.filter(d => d.status === "Published" || !d.status)} onOpenDeal={(deal) => setModal(deal)} />
-        ) : tab === "profile" ? (
-          <Profile
-            user={user}
-            cur={cur}
-            onSignInRequest={() => setShowAuth(true)}
-            onListingsChange={setDealsList}
-            dealsList={dealsList}
-            onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 4000); }}
-            savedIds={savedIds}
-            onToggleSave={toggleSave}
-            onOpen={setModal}
-            onBuyAndOnboard={buyAndOnboard}
-            onRegisterDistressProperty={async (newProp) => {
+        <Routes>
+          <Route path="/" element={<DealsView cur={cur} onOpen={setModal} query={query} setQuery={setQuery} dealsList={usingEmulator ? dbProperties : dealsList} onAiSearch={handleAiSearch} aiResults={aiResults} aiSearching={aiSearching} usingEmulator={usingEmulator} savedIds={savedIds} onToggleSave={toggleSave} compareIds={compareIds} onToggleCompare={toggleCompare} />} />
+          <Route path="/listings" element={<Listings dealsList={usingEmulator ? dbProperties : dealsList} cur={cur} onOpen={setModal} user={user} />} />
+          <Route path="/marketplace" element={<Marketplace cur={cur} onWhatsAppOpen={() => setWaOpen(true)} usingEmulator={usingEmulator} dataConnect={dataConnect} user={user} onSignInRequest={() => setShowAuth(true)} distressDeals={usingEmulator ? dbProperties : dealsList.filter(d => d.status === "Published" || !d.status)} onOpenDeal={(deal) => setModal(deal)} />} />
+          <Route path="/profile" element={<Profile user={user} cur={cur} onSignInRequest={() => setShowAuth(true)} onListingsChange={setDealsList} dealsList={dealsList} onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 4000); }} savedIds={savedIds} onToggleSave={toggleSave} onOpen={setModal} onBuyAndOnboard={buyAndOnboard} onRegisterDistressProperty={async (newProp) => {
               if (!usingEmulator) return;
               try {
                 await createDistressProperty(dataConnect, {
@@ -3868,13 +3827,11 @@ export default function App() {
               } catch (e) {
                 console.error("SQL Connect: Failed to save user distress listing:", e);
               }
-            }}
-          />
-        ) : tab === "about" ? (
-          <About cur={cur} onSignInRequest={() => setShowAuth(true)} />
-        ) : (
-          <ShortletView cur={cur} units={units} user={user} onSignInRequest={() => setShowAuth(true)} />
-        )}
+            }} />} />
+          <Route path="/about" element={<About cur={cur} onSignInRequest={() => setShowAuth(true)} />} />
+          <Route path="/shortlet" element={<ShortletView cur={cur} units={units} user={user} onSignInRequest={() => setShowAuth(true)} />} />
+          <Route path="*" element={<DealsView cur={cur} onOpen={setModal} query={query} setQuery={setQuery} dealsList={usingEmulator ? dbProperties : dealsList} onAiSearch={handleAiSearch} aiResults={aiResults} aiSearching={aiSearching} usingEmulator={usingEmulator} savedIds={savedIds} onToggleSave={toggleSave} compareIds={compareIds} onToggleCompare={toggleCompare} />} />
+        </Routes>
 
         {/* ── Diaspora Wealth Accelerator CTA Banner ── */}
         {tab === "deals" && (
@@ -3902,7 +3859,7 @@ export default function App() {
                 <Btn kind="gold" onClick={() => setWaOpen(true)}>
                   Talk to a deal concierge
                 </Btn>
-                <Btn kind="ghost" style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => setTab("deals")}>
+                <Btn kind="ghost" style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => navigate("/")}>
                   Browse verified deals →
                 </Btn>
               </div>
