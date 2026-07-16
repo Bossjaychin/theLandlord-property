@@ -9,6 +9,7 @@ import { fetchDistrictAvailability, createProperty, createBooking, secureDistres
 import AuthModal from "./AuthModal";
 import Profile from "./Profile";
 import ShortletView from "./ShortletView";
+import About from "./About";
 
 /* ============================================================
    THE LANDLORD PROPERTY — Launch Edition Web App
@@ -2867,11 +2868,11 @@ export default function App() {
   const [tab, setTab] = useState(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "");
-      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin"].includes(hash)) {
+      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin", "about"].includes(hash)) {
         return hash;
       }
       const path = window.location.pathname.replace(/^\/|\/$/g, "");
-      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin"].includes(path)) {
+      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin", "about"].includes(path)) {
         return path;
       }
     }
@@ -3124,7 +3125,7 @@ export default function App() {
     if (typeof window === "undefined") return;
     const handleHashChange = () => {
       const hash = window.location.hash.replace("#", "");
-      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin"].includes(hash)) {
+      if (["deals", "listings", "marketplace", "shortlet", "profile", "admin", "about"].includes(hash)) {
         setTab(hash);
       }
     };
@@ -3609,6 +3610,7 @@ export default function App() {
               ["marketplace", "Marketplace"],
               ["shortlet", "Shortlets"],
               ["profile", "Profile"],
+              ["about", "About"],
               ...(user ? [["admin", "Admin"]] : []),
             ].map(([k, text, badge]) => {
               const active = tab === k;
@@ -3625,7 +3627,7 @@ export default function App() {
                     fontWeight: active ? 700 : 600,
                     cursor: "pointer",
                     background: active
-                      ? (k === "deals" ? T.green : k === "listings" ? T.greenDark : k === "marketplace" ? T.green : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : T.ink)
+                      ? (k === "deals" ? T.green : k === "listings" ? T.greenDark : k === "marketplace" ? T.green : k === "shortlet" ? T.teal : k === "profile" ? T.greenDark : k === "about" ? T.gold : T.ink)
                       : "transparent",
                     color: active ? "#fff" : T.sub,
                     transition: "all .2s ease",
@@ -3868,6 +3870,8 @@ export default function App() {
               }
             }}
           />
+        ) : tab === "about" ? (
+          <About cur={cur} onSignInRequest={() => setShowAuth(true)} />
         ) : (
           <ShortletView cur={cur} units={units} user={user} onSignInRequest={() => setShowAuth(true)} />
         )}
