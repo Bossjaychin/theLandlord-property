@@ -781,6 +781,77 @@ exports.onInspectionRequested = functions
     console.log(`[onInspectionRequested] Processed request ${requestId}.`);
   });
 
+/**
+ * 7. onKycSubmitted (Firestore Trigger)
+ * Triggers when a user's kycStatus transitions to 'Pending'.
+ * Sends an email notification to the admin with KYC details to review.
+ */
+exports.onKycSubmitted = functions
+  .runWith({ secrets: ["GMAIL_USER", "GMAIL_PASS"] })
+  .firestore.document("users/{userId}")
+  .onUpdate(async (change, context) => {
+    const beforeData = change.before.data();
+    const afterData = change.after.data();
+    const userId = context.params.userId;
+
+    const wasPending = beforeData.kycStatus === "Pending";
+    const isPending = afterData.kycStatus === "Pending";
+
+    if (!wasPending && isPending) {
+      const details = afterData.kycDetails || {};
+      const fullName = details.fullName || afterData.name || "Unnamed User";
+      const userEmail = afterData.email || "No Email";
+      const idType = details.idType || "N/A";
+      const idNumber = details.idNumber || details.documentIdNumber || "N/A";
+      const docName = details.documentName || "No file uploaded";
+      
+      // Delay check slightly to let duplicate-check function write flaggedDuplicate first
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Re-fetch document to get potential flaggedDuplicate status updated by onUserUpdated trigger
+      const freshDoc = await db.collection("users").doc(userId).get();
+      const freshData = freshDoc.data() || {};
+      const isDuplicate = freshData.flaggedDuplicate === true;
+
+      console.log(`[onKycSubmitted] KYC submitted by user: ${fullName} (${userId}). Sending email alert to admin.`);
+
+      // Email alert to admin
+      await sendEmail({
+        to: ADMIN_EMAIL,
+        subject: `🛡️ New KYC Submission: ${fullName} — ${idType}`,
+        text: `New compliance KYC submission on The Landlord Property AI.\n\nBuyer Name: ${fullName}\nUser ID: ${userId}\nEmail: ${userEmail}\nID Type: ${idType}\nID Number: ${idNumber}\nAttachment: ${docName}\nFlagged Duplicate: ${isDuplicate ? "Yes ⚠️" : "No"}\n\nLogin to review compliance queue:\nhttps://thelandlord-property.web.app/admin`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+            <div style="background:#0E5A3A;color:#fff;padding:24px 28px;border-radius:12px 12px 0 0">
+              <h2 style="margin:0;font-size:20px">🛡️ New KYC Submission</h2>
+            </div>
+            <div style="background:#f8fafb;padding:24px 28px;border-radius:0 0 12px 12px;border:1px solid #e2e8ef">
+              <table style="width:100%;border-collapse:collapse;font-size:14px">
+                <tr><td style="color:#6b7280;padding:6px 0;width:120px">Buyer Name</td><td style="font-weight:700;color:#111">${fullName}</td></tr>
+                <tr><td style="color:#6b7280;padding:6px 0">Email</td><td style="font-weight:700;color:#111">${userEmail}</td></tr>
+                <tr><td style="color:#6b7280;padding:6px 0">User ID</td><td style="font-size:12px;color:#111;font-family:monospace">${userId}</td></tr>
+                <tr><td style="color:#6b7280;padding:6px 0">ID Type</td><td style="font-weight:700;color:#111">${idType}</td></tr>
+                <tr><td style="color:#6b7280;padding:6px 0">ID Number</td><td style="font-weight:800;color:#111;font-family:monospace">${idNumber}</td></tr>
+                <tr><td style="color:#6b7280;padding:6px 0">Attachment</td><td style="color:#0E6B75">${docName}</td></tr>
+                ${isDuplicate ? `
+                <tr>
+                  <td style="color:#b3261e;padding:6px 0;font-weight:700">⚠️ Risk Status</td>
+                  <td style="font-weight:800;color:#b3261e">FLAGGED DUPLICATE ID</td>
+                </tr>
+                ` : ""}
+              </table>
+              <div style="margin-top:24px">
+                <a href="https://thelandlord-property.web.app/admin" style="background:#0E5A3A;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px;display:inline-block">Review in Admin →</a>
+              </div>
+            </div>
+          </div>
+        `,
+      });
+
+      console.log(`[onKycSubmitted] Email alert sent for user: ${userId}.`);
+    }
+  });
+
 const { getShortletPricing } = require("./shortletPricing");
 const { getDistressDealIntelligence } = require("./distressDeal");
 
