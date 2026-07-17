@@ -3116,9 +3116,13 @@ export default function App() {
     if (!usingEmulator) return;
     const seedDatabase = async () => {
       try {
-        const seeded = localStorage.getItem("lp_db_seeded_v3");
-        if (!seeded) {
-          console.log("Seeding SQL Connect database with mock listings & embeddings...");
+        const check = await listAllProperties(dataConnect, {
+          checkIn: "2026-07-01",
+          checkOut: "2026-07-08"
+        });
+        const hasData = check?.data?.properties && check.data.properties.length > 0;
+        if (!hasData) {
+          console.log("SQL Connect database is empty. Seeding database with mock listings & embeddings...");
           for (const d of DEALS) {
             const desc = `${d.name} in ${d.district} district. Title details: ${d.title}. Sale urgency context: ${d.urgency}. Verified by ${d.verifiedBy}.`;
             await createDistressProperty(dataConnect, {
@@ -3859,7 +3863,26 @@ export default function App() {
                 <Btn kind="gold" onClick={() => setWaOpen(true)}>
                   Talk to a deal concierge
                 </Btn>
-                <Btn kind="ghost" style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => navigate("/")}>
+                <Btn
+                  kind="ghost"
+                  style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}
+                  onClick={() => {
+                    if (location.pathname === "/") {
+                      const grid = document.querySelector(".deal-grid");
+                      if (grid) {
+                        grid.scrollIntoView({ behavior: "smooth" });
+                      }
+                    } else {
+                      navigate("/");
+                      setTimeout(() => {
+                        const grid = document.querySelector(".deal-grid");
+                        if (grid) {
+                          grid.scrollIntoView({ behavior: "smooth" });
+                        }
+                      }, 100);
+                    }
+                  }}
+                >
                   Browse verified deals →
                 </Btn>
               </div>
