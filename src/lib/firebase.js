@@ -4,7 +4,6 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getDataConnect, connectDataConnectEmulator } from 'firebase/data-connect';
 import { getFirestore, connectFirestoreEmulator, doc, updateDoc } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { getAI, getGenerativeModel, GoogleAIBackend } from 'firebase/ai';
 import { getStorage } from 'firebase/storage';
 import { connectorConfig } from './dataconnect';
@@ -22,18 +21,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// App Check — only initialized in browser context
+// App Check — disabled for now to prevent failed reCAPTCHA tokens from blocking client operations
 let appCheck = null;
-if (typeof window !== 'undefined') {
-  // If in local development, enable debug token provider for emulators
-  if (import.meta.env.DEV) {
-    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-  }
-  appCheck = initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider('6Ld_w6mzAAAAAMZ7vX_wXkWXjGIi9VfJBtj5MYnB'), // Swap with your production reCAPTCHA Enterprise key
-    isTokenAutoRefreshEnabled: true
-  });
-}
 
 // Initialize Firebase AI (Gemini Developer API)
 const ai = getAI(app, { backend: new GoogleAIBackend() });
