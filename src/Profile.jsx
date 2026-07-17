@@ -1785,6 +1785,14 @@ export default function Profile({
             onOpen={onOpen}
           />
         )}
+      {showKycForm && (
+        <KycModal
+          onClose={() => setShowKycForm(false)}
+          onSubmit={handleKycSubmit}
+          onAutoApprove={handleKycAutoApprove}
+          submitting={kycSimulating}
+        />
+      )}
       </div>
   );
 }
@@ -1992,14 +2000,6 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
             )}
           </div>
         </>
-      )}
-      {showKycForm && (
-        <KycModal
-          onClose={() => setShowKycForm(false)}
-          onSubmit={handleKycSubmit}
-          onAutoApprove={handleKycAutoApprove}
-          submitting={kycSimulating}
-        />
       )}
     </div>
   );
