@@ -1065,6 +1065,8 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
 
   if (!deal) return null;
   const disc = Math.round(((deal.market - deal.asking) / deal.market) * 100);
+  const negLow = deal.negotiation?.[0] ?? deal.negotiation_low ?? Math.round(deal.asking * 0.9);
+  const negHigh = deal.negotiation?.[1] ?? deal.negotiation_high ?? deal.asking;
   const steps = ["Offer accepted", "AGIS search & legal review", "Documents executed", "Possession — funds released"];
   const isVerified = !!user; // treat signed-in as verified for demo; in prod check kycVerified claim
   const photo = getDealPhoto(deal);
@@ -1274,7 +1276,7 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
             ["Asking price", fmtFull(deal.asking, cur), T.ink, false],
             ["AI market value", isVerified ? fmtFull(deal.market, cur) : "Verify to view", T.green, !isVerified],
             ["Discount", "−" + disc + "%", T.amber, false],
-            ["AI negotiation range", isVerified ? `${fmtN(deal.negotiation[0], cur)} – ${fmtN(deal.negotiation[1], cur)}` : "Verify to view", T.ink, !isVerified],
+            ["AI negotiation range", isVerified ? `${fmtN(negLow, cur)} – ${fmtN(negHigh, cur)}` : "Verify to view", T.ink, !isVerified],
           ].map(([k, v, c, locked]) => (
             <div key={k} style={{
               background: T.card,
@@ -2297,6 +2299,8 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
   const discountFromAsking = deal?.asking && offerPriceNum > 0
     ? Math.round(((deal.asking - offerPriceNum) / deal.asking) * 100)
     : 0;
+  const negMin = deal?.negotiation?.[0] ?? deal?.negotiation_low ?? (deal?.asking ? Math.round(deal.asking * 0.9) : 0);
+  const negMax = deal?.negotiation?.[1] ?? deal?.negotiation_high ?? (deal?.asking ? deal.asking : 0);
 
   const fmtCur = (n) => {
     if (cur === "USD") return "$" + Math.round(n / 1550).toLocaleString();
@@ -2441,7 +2445,7 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
               <span style={{ color: T.sub }}>Asking: <strong>{fmtCur(deal?.asking)}</strong></span>
               {discountFromAsking > 0 && <span style={{ color: T.amber, fontWeight: 700 }}>−{discountFromAsking}% below asking</span>}
               {discountFromAsking < 0 && <span style={{ color: T.green, fontWeight: 700 }}>+{Math.abs(discountFromAsking)}% above asking</span>}
-              {deal?.negotiation?.[0] && offerPriceNum >= deal.negotiation[0] && offerPriceNum <= deal.negotiation[1] && (
+              {negMin > 0 && offerPriceNum >= negMin && offerPriceNum <= negMax && (
                 <span style={{ color: T.green, fontWeight: 700 }}>✓ Within AI negotiation range</span>
               )}
             </div>
