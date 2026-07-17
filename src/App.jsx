@@ -245,7 +245,7 @@ const SCREENED = [
 ];
 
 /* ---------------- Property photo map (one per deal type) ---------------- */
-// Curated Unsplash photos that match each deal's property type
+// Curated Unsplash photos that match each deal's property type (fallback when no real photos uploaded)
 const DEAL_PHOTOS = {
   d1: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80",  // apartment
   d2: "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&q=80",  // terrace duplex
@@ -254,7 +254,26 @@ const DEAL_PHOTOS = {
   d5: "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800&q=80",  // 5-bed detached
   d6: "https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80",  // corner plot land
 };
-const getDealPhoto = (deal) => DEAL_PHOTOS[deal.id] || "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80";
+/**
+ * Returns the primary photo URL for a deal.
+ * Prefers real Firebase Storage uploads (deal.imageUrls), falls back to
+ * curated Unsplash photos by deal ID, then a generic apartment shot.
+ */
+const getDealPhoto = (deal) => {
+  if (deal?.imageUrls?.length > 0) return deal.imageUrls[0];
+  return DEAL_PHOTOS[deal?.id] || "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80";
+};
+
+/**
+ * Returns the full photo gallery for a deal.
+ * Uses real uploaded photos first, then falls back to a single Unsplash shot.
+ */
+const getDealPhotos = (deal) => {
+  if (deal?.imageUrls?.length > 0) return deal.imageUrls;
+  const fallback = getDealPhoto(deal);
+  return [fallback];
+};
+
 
 /* ---------------- Small components ---------------- */
 
@@ -1077,12 +1096,9 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, kycVerified, onS
   // isVerified: true when user has passed KYC (claim or localStorage bypass) AND is signed in
   const isVerified = !!user && (kycVerified || localStorage.getItem(`lp_kyc_${user?.uid}`) === "true");
   const photo = getDealPhoto(deal);
-  // Generate 3 mock extra photos by varying the Unsplash query slightly
-  const photos = [
-    photo,
-    photo?.replace ? photo.replace("w=800", "w=801") : photo,
-    photo?.replace ? photo.replace("w=800", "w=802") : photo,
-  ];
+  // Use real uploaded photos if available, else single Unsplash fallback
+  const photos = getDealPhotos(deal);
+
 
   const runForensics = async () => {
     setLoadingReport(true);

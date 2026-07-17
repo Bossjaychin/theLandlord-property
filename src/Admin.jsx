@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { db } from "./lib/firebase";
+import { db, storage } from "./lib/firebase";
 import { collection, query, orderBy, limit, getDocs, getCountFromServer, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore";
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 
 
 /* ============================================================
@@ -565,6 +566,54 @@ const DealFormModal = ({ deal, onSave, onClose }) => {
   const [form, setForm] = useState({ ...EMPTY_DEAL, ...deal });
   const [descLoading, setDescLoading] = useState(false);
 
+  // ── Photo upload state
+  const [imageUrls, setImageUrls] = useState(deal?.imageUrls || []);
+  const [uploadProgress, setUploadProgress] = useState({}); // { filename: 0–100 }
+  const [uploadError, setUploadError] = useState(null);
+  const photoInputRef = useRef(null);
+
+  const uploadPhotos = async (files) => {
+    setUploadError(null);
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    const toUpload = Array.from(files).filter((f) => {
+      if (!allowed.includes(f.type)) { setUploadError('Only JPG, PNG, or WebP images are allowed.'); return false; }
+      if (f.size > 8 * 1024 * 1024) { setUploadError('Each photo must be under 8 MB.'); return false; }
+      return true;
+    });
+
+    for (const file of toUpload) {
+      const dealId = form.id || ('d' + Date.now());
+      const storageRef = ref(storage, `properties/${dealId}/${Date.now()}_${file.name.replace(/\s+/g, '_')}`);
+      const task = uploadBytesResumable(storageRef, file);
+
+      await new Promise((resolve, reject) => {
+        task.on(
+          'state_changed',
+          (snap) => {
+            const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+            setUploadProgress((p) => ({ ...p, [file.name]: pct }));
+          },
+          (err) => { setUploadError(err.message); reject(err); },
+          async () => {
+            const url = await getDownloadURL(task.snapshot.ref);
+            setImageUrls((prev) => [...prev, url]);
+            setUploadProgress((p) => { const n = { ...p }; delete n[file.name]; return n; });
+            resolve();
+          }
+        );
+      }).catch(() => {});
+    }
+  };
+
+  const removePhoto = async (url, idx) => {
+    try {
+      // Attempt to delete from Storage (may fail if URL is external — that's OK)
+      const storageRef = ref(storage, url);
+      await deleteObject(storageRef).catch(() => {});
+    } catch {}
+    setImageUrls((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const hasShortlet = form.type !== "Land";
 
@@ -610,6 +659,7 @@ const DealFormModal = ({ deal, onSave, onClose }) => {
         ? { nightly: Number(form.shortlet_nightly), occ: Number(form.shortlet_occ) || 0.7, monthlyNet: Number(form.shortlet_monthlyNet) || 0 }
         : null,
       id: form.id || "d" + Date.now(),
+      imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
     });
   };
 
@@ -809,6 +859,109 @@ const DealFormModal = ({ deal, onSave, onClose }) => {
             />
           </div>
 
+        </div>
+
+        {/* ── Property Photos ────────────────────────────────────────────────────── */}
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: T.sub }}>
+              Property Photos ({imageUrls.length}/10)
+            </div>
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              style={{
+                background: T.teal, color: '#fff', border: 'none', borderRadius: 8,
+                padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              📷 Upload Photos
+            </button>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => uploadPhotos(e.target.files)}
+            />
+          </div>
+
+          {uploadError && (
+            <div style={{ background: T.riskSoft, color: T.risk, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
+              ⚠️ {uploadError}
+            </div>
+          )}
+
+          {/* Upload progress bars */}
+          {Object.entries(uploadProgress).map(([name, pct]) => (
+            <div key={name} style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11.5, color: T.sub, marginBottom: 3 }}>{name} — {pct}%</div>
+              <div style={{ height: 4, background: T.line, borderRadius: 99 }}>
+                <div style={{ height: '100%', width: `${pct}%`, background: T.teal, borderRadius: 99, transition: 'width .2s' }} />
+              </div>
+            </div>
+          ))}
+
+          {/* Thumbnail grid */}
+          {imageUrls.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
+              {imageUrls.map((url, i) => (
+                <div key={i} style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', aspectRatio: '4/3', background: T.line }}>
+                  <img src={url} alt={`Photo ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(url, i)}
+                    style={{
+                      position: 'absolute', top: 4, right: 4,
+                      background: 'rgba(12,43,31,.75)', color: '#fff',
+                      border: 'none', borderRadius: '50%',
+                      width: 22, height: 22, cursor: 'pointer',
+                      fontSize: 11, fontWeight: 700, lineHeight: '22px', textAlign: 'center',
+                    }}
+                  >
+                    ✕
+                  </button>
+                  {i === 0 && (
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(14,90,58,.85)', color: '#fff', fontSize: 9, fontWeight: 700, textAlign: 'center', padding: '2px 0', letterSpacing: 0.5 }}>COVER</div>
+                  )}
+                </div>
+              ))}
+              <div
+                onClick={() => photoInputRef.current?.click()}
+                style={{
+                  borderRadius: 10, border: `2px dashed ${T.line}`, aspectRatio: '4/3',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  justifyContent: 'center', cursor: 'pointer', color: T.sub, gap: 4,
+                  transition: 'border-color .15s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = T.teal}
+                onMouseLeave={e => e.currentTarget.style.borderColor = T.line}
+              >
+                <span style={{ fontSize: 20 }}>+</span>
+                <span style={{ fontSize: 10, fontWeight: 700 }}>Add more</span>
+              </div>
+            </div>
+          ) : (
+            <div
+              onClick={() => photoInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = T.teal; }}
+              onDragLeave={(e) => e.currentTarget.style.borderColor = T.line}
+              onDrop={(e) => { e.preventDefault(); uploadPhotos(e.dataTransfer.files); e.currentTarget.style.borderColor = T.line; }}
+              style={{
+                border: `2px dashed ${T.line}`, borderRadius: 12, padding: '28px 16px',
+                textAlign: 'center', cursor: 'pointer', color: T.sub,
+                transition: 'border-color .15s, background .15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.teal; e.currentTarget.style.background = T.tealSoft; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div style={{ fontSize: 28, marginBottom: 6 }}>📷</div>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: T.ink }}>Drop photos here or click to upload</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>JPG, PNG, WebP — up to 8 MB each — up to 10 photos</div>
+            </div>
+          )}
         </div>
 
         {/* Actions */}

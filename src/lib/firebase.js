@@ -6,6 +6,7 @@ import { getFirestore, connectFirestoreEmulator, doc, updateDoc } from 'firebase
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { getAI, getGenerativeModel, GoogleAIBackend } from 'firebase/ai';
+import { getStorage } from 'firebase/storage';
 import { connectorConfig } from './dataconnect';
 
 // Firebase project config
@@ -49,6 +50,9 @@ const auth = getAuth(app);
 
 // Firestore
 const db = getFirestore(app);
+
+// Firebase Storage
+const storage = getStorage(app);
 
 // Data Connect
 const dataConnect = getDataConnect(connectorConfig);
@@ -123,4 +127,4 @@ export function onForegroundMessage(callback) {
   return onMessage(messaging, callback);
 }
 
-export { app, auth, analytics, dataConnect, db, messaging, appCheck, ai, aiModel };
+export { app, auth, analytics, dataConnect, db, storage, messaging, appCheck, ai, aiModel };
