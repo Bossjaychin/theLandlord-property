@@ -2246,19 +2246,20 @@ function KycModal({ onClose, onSubmit, onAutoApprove, submitting }) {
             >
               {submitting ? "Submitting compliance details..." : "Submit Compliance for Review"}
             </button>
-            
-            <button
-              type="button"
-              onClick={onAutoApprove}
-              disabled={submitting}
-              style={{
-                width: "100%", background: T.goldSoft, color: "#7A5800", border: `1.5px solid ${T.gold}44`,
-                borderRadius: 12, padding: "10px", fontWeight: 700, fontSize: 12.5,
-                cursor: submitting ? "not-allowed" : "pointer",
-              }}
-            >
-              ⚡ Developer Bypass: Auto-Verify Account
-            </button>
+            {import.meta.env.DEV && (
+              <button
+                type="button"
+                onClick={onAutoApprove}
+                disabled={submitting}
+                style={{
+                  width: "100%", background: T.goldSoft, color: "#7A5800", border: `1.5px solid ${T.gold}44`,
+                  borderRadius: 12, padding: "10px", fontWeight: 700, fontSize: 12.5,
+                  cursor: submitting ? "not-allowed" : "pointer",
+                }}
+              >
+                ⚡ Developer Bypass: Auto-Verify Account
+              </button>
+            )}
           </div>
         </form>
       </div>
