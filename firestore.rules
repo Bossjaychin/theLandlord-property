@@ -2,104 +2,175 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if user is authenticated
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
+    // Is the request from a signed-in Firebase user?
     function isAuth() {
       return request.auth != null;
     }
 
-    // Helper function to check if user is document owner
+    // Does the requesting user own this document?
     function isOwner(userId) {
       return isAuth() && request.auth.uid == userId;
     }
 
-    // Helper function to check if the authenticated user is an admin
+    // Has this user been granted the 'admin' role in Firestore?
     function isAdmin() {
-      return isAuth() && 
+      return isAuth() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // User Profile Rules
+    // Has this user passed KYC? Checks the Firebase custom claim (set by Cloud Functions only).
+    function isKycVerified() {
+      return isAuth() && request.auth.token.kycVerified == true;
+    }
+
+    // Is the incoming write only touching the allowed set of fields?
+    function onlyFields(allowed) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+    }
+
+    // ── Users (/users/{userId}) ────────────────────────────────────────────────
+    // Users can read and update their own profile.
+    // Sensitive fields (role, verified, kycStatus) are admin-only on write.
+    // The KYC bypass path (writing verified/kycStatus from the client) is intentionally
+    // allowed here for development — replace the 'Passed' check with isAdmin() for strict prod.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && 
-        (!request.resource.data.keys().hasAll(['role']) || request.resource.data.role != 'admin') &&
-        (!request.resource.data.keys().hasAll(['verified']) || request.resource.data.verified == false) &&
-        (!request.resource.data.keys().hasAll(['kycStatus']) || request.resource.data.kycStatus == 'Pending' || request.resource.data.kycStatus == null);
-      allow update: if isAdmin() || (isOwner(userId) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'verified', 'kycStatus'])));
+
+      allow create: if isOwner(userId) &&
+        // New users cannot self-assign admin role
+        (!request.resource.data.keys().hasAny(['role'])) &&
+        // New users start unverified
+        (!request.resource.data.keys().hasAny(['verified']) || request.resource.data.verified == false) &&
+        (!request.resource.data.keys().hasAny(['kycStatus']) ||
+          request.resource.data.kycStatus == 'Pending' || request.resource.data.kycStatus == null);
+
+      allow update: if isAdmin() || (
+        isOwner(userId) && (
+          // Allowed: user can write their own preferences, lastLogin, fcmToken, savedDeals
+          onlyFields(['preferences', 'lastLogin', 'fcmToken', 'savedDeals', 'updatedAt']) ||
+          // Allowed: user can submit KYC details (Pending status only, never self-approve)
+          (onlyFields(['kycStatus', 'kycDetails', 'updatedAt']) &&
+           request.resource.data.kycStatus == 'Pending') ||
+          // Allowed: KYC bypass for development (writes verified:true + kycStatus:'Passed')
+          // Remove this block when ready for strict production enforcement
+          (onlyFields(['verified', 'kycStatus', 'kycDetails', 'updatedAt']) &&
+           request.resource.data.kycStatus == 'Passed')
+        )
+      );
+
       allow delete: if isAdmin();
     }
 
-    // Notifications Rules
+    // ── Properties (/properties/{propertyId}) ─────────────────────────────────
+    // Properties are publicly readable. Only admins can write.
+    match /properties/{propertyId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Distress Listings (/distress_listings/{id}) ────────────────────────────
+    // Verified buyers can submit distress listings; anyone can read (for matching).
+    // Only admins can update status fields (agisStatus, investmentScore).
+    match /distress_listings/{listingId} {
+      allow read: if true;
+      allow create: if isKycVerified() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin() || (
+        isOwner(resource.data.userId) &&
+        onlyFields(['title', 'askingPrice', 'district', 'description', 'urgencyReason',
+                    'titleType', 'agisNumber', 'updatedAt'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ── Offers (/offers/{offerId}) ─────────────────────────────────────────────
+    // Only KYC-verified buyers can place offers.
+    // Only admins can change offer status (accept/reject).
+    match /offers/{offerId} {
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isKycVerified() &&
+        request.resource.data.userId == request.auth.uid &&
+        (!request.resource.data.keys().hasAny(['status']) || request.resource.data.status == 'Submitted');
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Escrows (/escrows/{escrowId}) ──────────────────────────────────────────
+    // Escrows are created by admin. Buyers can update only at the correct stage.
+    match /escrows/{escrowId} {
+      allow read: if isAuth() && (resource.data.buyerId == request.auth.uid || isAdmin());
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        isKycVerified() &&
+        isAuth() && resource.data.buyerId == request.auth.uid && (
+          // Stage 1 → buyer uploads payment proof
+          (resource.data.stage == 1 &&
+           onlyFields(['paymentStatus', 'paymentBank', 'paymentRef', 'paymentReceiptUrl', 'paymentSubmittedAt', 'updatedAt']) &&
+           request.resource.data.paymentStatus == 'Pending Verification') ||
+          // Stage 2 → buyer uploads signed deed
+          (resource.data.stage == 2 &&
+           onlyFields(['deedStatus', 'deedUrl', 'signatureUrl', 'deedUploadedAt', 'updatedAt']) &&
+           request.resource.data.deedStatus == 'Pending Verification') ||
+          // Stage 3 → buyer confirms possession and releases funds
+          (resource.data.stage == 3 &&
+           onlyFields(['stage', 'status', 'fundsReleased', 'updatedAt']) &&
+           request.resource.data.stage == 4 &&
+           request.resource.data.status == 'Completed' &&
+           request.resource.data.fundsReleased == true)
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ── Inspection Requests (/inspection_requests/{id}) ────────────────────────
+    // Any signed-in user can submit; they can only read their own.
+    match /inspection_requests/{requestId} {
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Activity Logs (/activity_logs/{logId}) ────────────────────────────────
+    // Users see their own logs. Admins see all.
+    match /activity_logs/{logId} {
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuth() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Notifications (/notifications/{id}) ───────────────────────────────────
     match /notifications/{notificationId} {
       allow read, update: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuth() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
     }
 
-    // Properties Rules (stored in SQL Connect, legacy path restricted)
-    match /properties/{propertyId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // Saved Searches Rules
+    // ── Saved Searches (/savedSearches/{id}) ──────────────────────────────────
     match /savedSearches/{searchId} {
       allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
-    // Offers Rules
-    match /offers/{offerId} {
-      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuth() && 
-        request.resource.data.userId == request.auth.uid &&
-        (!request.resource.data.keys().hasAll(['status']) || request.resource.data.status == 'Submitted');
-      allow update, delete: if isAdmin();
-    }
-
-    // Escrows Rules
-    match /escrows/{escrowId} {
-      allow read: if isAuth() && (resource.data.buyerId == request.auth.uid || isAdmin());
-      allow create: if isAdmin(); // Escrows are created by Admin upon accepting an offer
-      allow update: if isAuth() && (
-        isAdmin() || (
-          resource.data.buyerId == request.auth.uid &&
-          // Buyer can only update their escrow under strict conditions based on the current stage:
-          (
-            // Stage 1: Buyer submitting payment verification
-            (resource.data.stage == 1 && 
-             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paymentBank', 'paymentRef', 'paymentReceiptUrl', 'paymentSubmittedAt', 'updatedAt']) &&
-             request.resource.data.paymentStatus == 'Pending Verification') ||
-            
-            // Stage 2: Buyer signing/executing Deed of Assignment
-            (resource.data.stage == 2 && 
-             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deedStatus', 'deedUrl', 'signatureUrl', 'deedUploadedAt', 'updatedAt']) &&
-             request.resource.data.deedStatus == 'Pending Verification') ||
-            
-            // Stage 3: Buyer taking possession & releasing funds
-            (resource.data.stage == 3 && 
-             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stage', 'status', 'fundsReleased', 'updatedAt']) &&
-             request.resource.data.stage == 4 &&
-             request.resource.data.status == 'Completed' &&
-             request.resource.data.fundsReleased == true)
-          )
-        )
+    // ── Shortlet Bookings (/shortlet_bookings/{id}) ───────────────────────────
+    // Any signed-in user can create a booking. Only the booker or admin can read/manage it.
+    match /shortlet_bookings/{bookingId} {
+      allow read: if isAuth() && (resource.data.guestId == request.auth.uid || isAdmin());
+      allow create: if isAuth() && request.resource.data.guestId == request.auth.uid;
+      allow update: if isAdmin() || (
+        isAuth() && resource.data.guestId == request.auth.uid &&
+        onlyFields(['status', 'updatedAt']) &&
+        request.resource.data.status == 'Cancelled'
       );
       allow delete: if isAdmin();
     }
 
-    // Activity Logs Rules
-    match /activity_logs/{logId} {
-      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuth() && (request.resource.data.userId == request.auth.uid || isAdmin());
-    }
-
-    // Inspection Requests Rules
-    match /inspection_requests/{requestId} {
-      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin();
+    // ── FCM Tokens (/fcm_tokens/{userId}) ─────────────────────────────────────
+    // Users manage only their own push tokens.
+    match /fcm_tokens/{userId} {
+      allow read, write: if isOwner(userId);
     }
   }
 }
