@@ -12,10 +12,11 @@
     "logs": "firebase functions:log"
   },
   "dependencies": {
+    "@genkit-ai/google-genai": "^1.40.0",
     "firebase-admin": "^12.7.0",
     "firebase-functions": "^6.3.0",
     "genkit": "^1.40.0",
-    "@genkit-ai/google-genai": "^1.40.0",
+    "nodemailer": "^9.0.3",
     "zod": "^3.24.0"
   },
   "private": true

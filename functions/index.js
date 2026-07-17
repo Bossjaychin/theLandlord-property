@@ -1,9 +1,13 @@
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
+const { sendEmail } = require("./emailHelper");
 
 admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
+
+// Admin email — update this to the real ops inbox
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.GMAIL_USER || "admin@thelandlordproperty.com";
 
 /**
  * Helper: Send an FCM push notification to a single user by their stored token.
@@ -608,7 +612,132 @@ The Landlord Property AI`,
       `Your offer of ₦${offerPrice.toLocaleString()} on ${dealName} is being reviewed. Expect a response within 2 hours.`
     );
 
-    console.log(`[onOfferSubmitted] Offer ${offerId} processed. Sent confirmation to buyer ${buyerId}.`);
+    // 5. Email alert to admin
+    await sendEmail({
+      to: ADMIN_EMAIL,
+      subject: `🏡 New Offer: ₦${offerPrice.toLocaleString()} on ${dealName} (${district})`,
+      text: `New purchase offer received on The Landlord Property AI.
+
+Buyer: ${buyerName} <${buyerEmail}>
+Property: ${dealName}
+District: ${district}
+Offer Price: ₦${offerPrice.toLocaleString()}
+Financing: ${financing}
+Settlement Timeline: ${timeline} days
+Offer ID: ${offerId}
+
+Login to review and respond:
+https://thelandlord-property.web.app/admin`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#0E6B75;color:#fff;padding:24px 28px;border-radius:12px 12px 0 0">
+            <h2 style="margin:0;font-size:20px">🏡 New Purchase Offer Received</h2>
+          </div>
+          <div style="background:#f8fafb;padding:24px 28px;border-radius:0 0 12px 12px;border:1px solid #e2e8ef">
+            <table style="width:100%;border-collapse:collapse;font-size:14px">
+              <tr><td style="color:#6b7280;padding:6px 0">Buyer</td><td style="font-weight:700;color:#111">${buyerName} &lt;${buyerEmail}&gt;</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Property</td><td style="font-weight:700;color:#111">${dealName}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">District</td><td style="font-weight:700;color:#111">${district}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Offer Price</td><td style="font-weight:800;font-size:18px;color:#0E6B75">₦${offerPrice.toLocaleString()}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Financing</td><td style="font-weight:700;color:#111">${financing}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Settlement</td><td style="font-weight:700;color:#111">${timeline} days</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Offer ID</td><td style="font-size:11px;color:#6b7280;font-family:monospace">${offerId}</td></tr>
+            </table>
+            <div style="margin-top:24px">
+              <a href="https://thelandlord-property.web.app/admin" style="background:#0E6B75;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px">Review Offer in Admin →</a>
+            </div>
+          </div>
+        </div>
+      `,
+    });
+
+    console.log(`[onOfferSubmitted] Offer ${offerId} processed. Sent confirmation to buyer ${buyerId} and alert to admin.`);
+  });
+
+/**
+ * 6. onInspectionRequested (Firestore Trigger)
+ * Fires when a buyer submits an inspection request.
+ * Notifies the buyer and emails the admin team.
+ */
+exports.onInspectionRequested = functions.firestore
+  .document("inspection_requests/{requestId}")
+  .onCreate(async (snapshot, context) => {
+    const req = snapshot.data();
+    const requestId = context.params.requestId;
+
+    const buyerId = req.userId || "";
+    const buyerEmail = req.userEmail || "";
+    const dealName = req.dealName || "Property";
+    const district = req.district || "Abuja";
+    const preferredDate = req.preferredDate || "TBD";
+    const buyerName = req.userName || buyerEmail.split("@")[0] || "Buyer";
+
+    console.log(`[onInspectionRequested] Inspection request for "${dealName}" on ${preferredDate}`);
+
+    const batch = db.batch();
+
+    // Confirmation to buyer
+    if (buyerId) {
+      const notifRef = db.collection("notifications").doc();
+      batch.set(notifRef, {
+        userId: buyerId,
+        type: "whatsapp",
+        email: buyerEmail,
+        status: "sent",
+        sent: true,
+        title: "📋 Inspection Request Confirmed",
+        message: `📋 Inspection Request Received\n\nHello,\n\nWe've received your inspection request for:\n📍 ${dealName}\n📍 ${district}\n\nPreferred Date: ${preferredDate}\n\nOur field agent will confirm within 2 hours via WhatsApp.\n\nThe Landlord Property AI`,
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Activity log
+      const logRef = db.collection("activity_logs").doc();
+      batch.set(logRef, {
+        userId: buyerId,
+        action: "inspection_requested",
+        details: `Inspection requested for "${dealName}" (${district}) on ${preferredDate}.`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+
+    // FCM push to buyer
+    if (buyerId) {
+      await sendPush(
+        buyerId,
+        "📋 Inspection Confirmed!",
+        `Your inspection request for ${dealName} on ${preferredDate} has been received. Agent will confirm shortly.`
+      );
+    }
+
+    // Email alert to admin
+    await sendEmail({
+      to: ADMIN_EMAIL,
+      subject: `📋 Inspection Request: ${dealName} — ${preferredDate}`,
+      text: `New inspection request on The Landlord Property AI.\n\nBuyer: ${buyerName} <${buyerEmail}>\nProperty: ${dealName}\nDistrict: ${district}\nPreferred Date: ${preferredDate}\nRequest ID: ${requestId}\n\nLogin to assign a field agent:\nhttps://thelandlord-property.web.app/admin`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#166534;color:#fff;padding:24px 28px;border-radius:12px 12px 0 0">
+            <h2 style="margin:0;font-size:20px">📋 New Inspection Request</h2>
+          </div>
+          <div style="background:#f8fafb;padding:24px 28px;border-radius:0 0 12px 12px;border:1px solid #e2e8ef">
+            <table style="width:100%;border-collapse:collapse;font-size:14px">
+              <tr><td style="color:#6b7280;padding:6px 0">Buyer</td><td style="font-weight:700;color:#111">${buyerName} &lt;${buyerEmail}&gt;</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Property</td><td style="font-weight:700;color:#111">${dealName}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">District</td><td style="font-weight:700;color:#111">${district}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0;font-size:16px">Preferred Date</td><td style="font-weight:800;font-size:18px;color:#166534">${preferredDate}</td></tr>
+            </table>
+            <div style="margin-top:24px">
+              <a href="https://thelandlord-property.web.app/admin" style="background:#166534;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px">Assign Field Agent →</a>
+            </div>
+          </div>
+        </div>
+      `,
+    });
+
+    console.log(`[onInspectionRequested] Processed request ${requestId}.`);
   });
 
 const { getShortletPricing } = require("./shortletPricing");
