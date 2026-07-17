@@ -2015,7 +2015,19 @@ const VerificationsView = ({ showToast }) => {
                         )}
                       </td>
                       <td style={{ padding: "12px" }}>
-                        <div style={{ fontWeight: 600 }}>{details.idType || "N/A"}</div>
+                        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          {details.idType || "N/A"}
+                          {u.flaggedDuplicate && (
+                            <span style={{
+                              background: T.riskSoft, color: T.risk,
+                              fontSize: 10, fontWeight: 800, padding: "2px 6px",
+                              borderRadius: 6, border: `1px solid ${T.risk}22`,
+                              letterSpacing: 0.5,
+                            }}>
+                              ⚠️ DUPLICATE ID
+                            </span>
+                          )}
+                        </div>
                         <div style={{ fontSize: 11.5, color: T.sub, fontFamily: "monospace" }}>{details.idNumber || "—"}</div>
                       </td>
                       <td style={{ padding: "12px" }}>

@@ -291,11 +291,7 @@ exports.onUserUpdated = functions.firestore
         status: "sent",
         sent: true,
         title: `Welcome back ${name}`,
-        message: `Welcome back ${name}
-
-15 new verified properties match your interests.
-
-View now: thelandlordproperty.com`,
+        message: `Welcome back ${name}\n\n15 new verified properties match your interests.\n\nView now: thelandlordproperty.com`,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       };
@@ -317,6 +313,49 @@ View now: thelandlordproperty.com`,
       await sendPush(uid, `Welcome back, ${name}! 👋`, '15 new verified properties match your interests. View now.');
 
       console.log(`[onUserUpdated] Dispatched welcome back notification for uid: ${uid}`);
+    }
+
+    // Check if KYC was submitted (kycStatus changed to "Pending")
+    const wasPending = beforeData.kycStatus === "Pending";
+    const isPending = afterData.kycStatus === "Pending";
+
+    if (!wasPending && isPending) {
+      const uid = context.params.userId;
+      const details = afterData.kycDetails || {};
+      const idNum = details.idNumber || details.documentIdNumber;
+
+      if (idNum) {
+        console.log(`[onUserUpdated] KYC submission pending for user: ${uid}. Checking ID duplication for: ${idNum}`);
+        try {
+          // Query for other user documents with matching ID numbers
+          const match1 = await db.collection("users").where("kycDetails.idNumber", "==", idNum).get();
+          const match2 = await db.collection("users").where("kycDetails.documentIdNumber", "==", idNum).get();
+
+          const otherUids = new Set();
+          match1.forEach(doc => { if (doc.id !== uid) otherUids.add(doc.id); });
+          match2.forEach(doc => { if (doc.id !== uid) otherUids.add(doc.id); });
+
+          if (otherUids.size > 0) {
+            console.log(`[onUserUpdated] Duplicate ID found! User ${uid} shares ID ${idNum} with other users: ${Array.from(otherUids).join(", ")}`);
+            
+            // Flag document as duplicate in Firestore
+            await db.collection("users").doc(uid).update({ flaggedDuplicate: true });
+
+            // Create warning activity log
+            await db.collection("activity_logs").add({
+              userId: uid,
+              action: "kyc_duplicate_flagged",
+              details: `WARNING: Submitted KYC ID number (${idNum}) matches other user accounts: ${Array.from(otherUids).join(", ")}. Marked as flaggedDuplicate: true.`,
+              createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+          } else {
+            console.log(`[onUserUpdated] ID number ${idNum} is unique.`);
+            await db.collection("users").doc(uid).update({ flaggedDuplicate: false });
+          }
+        } catch (err) {
+          console.error(`[onUserUpdated] Error checking duplicate KYC for ${uid}:`, err.message);
+        }
+      }
     }
   });
 

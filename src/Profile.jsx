@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { auth, db } from "./lib/firebase";
-import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, query, onSnapshot, where, orderBy } from "firebase/firestore";
+import { doc, getDoc, getDocs, setDoc, updateDoc, collection, addDoc, serverTimestamp, query, onSnapshot, where, orderBy } from "firebase/firestore";
 
 const T = {
   ink:      "#0C2B1F",
@@ -450,18 +450,50 @@ export default function Profile({
     if (!user) return;
     setKycSimulating(true);
     try {
+      // 1. Check for duplicate ID numbers across other users
+      let isDuplicate = false;
+      try {
+        const usersRef = collection(db, "users");
+        
+        // Query check on idNumber
+        const q1 = query(usersRef, where("kycDetails.idNumber", "==", idNumber));
+        const q2 = query(usersRef, where("kycDetails.documentIdNumber", "==", idNumber));
+        
+        const [snap1, snap2] = await Promise.all([
+          getDocs(q1),
+          getDocs(q2)
+        ]);
+        
+        const duplicates = [...snap1.docs, ...snap2.docs].filter(d => d.id !== user.uid);
+        if (duplicates.length > 0) {
+          isDuplicate = true;
+        }
+      } catch (ruleErr) {
+        console.warn("[KYC] Client-side duplicate check bypassed due to security rules:", ruleErr.message);
+      }
+
+      if (isDuplicate) {
+        if (onToast) onToast("⚠️ Verification Failed: This ID number is already associated with another account.");
+        setKycSimulating(false);
+        return;
+      }
+
+      // 2. Submit KYC Details
       const userDocRef = doc(db, "users", user.uid);
       await setDoc(userDocRef, {
         kycStatus: "Pending",
         verified: false,
+        flaggedDuplicate: false, // Default to false, can be set to true by Cloud Function if duplicate bypasses client
         kycDetails: {
           fullName,
           idType,
           idNumber,
+          documentIdNumber: idNumber, // Set both to be safe
           documentName: docName || "id_scan.png",
           submittedAt: new Date().toISOString()
         }
       }, { merge: true });
+      
       if (onToast) onToast("Compliance Details Submitted! Awaiting admin review.");
       setShowKycForm(false);
     } catch (err) {
