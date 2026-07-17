@@ -2083,6 +2083,43 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
   const [confirmAdvance, setConfirmAdvance] = useState(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
 
+  // ── Live unread counters for nav badges ──────────────────────────────────
+  const [pendingOffersCount, setPendingOffersCount] = useState(0);
+  const [pendingKycCount, setPendingKycCount] = useState(0);
+  const [pendingInspectCount, setPendingInspectCount] = useState(0);
+  const [adminNotifs, setAdminNotifs] = useState([]);
+  const [unreadAdminNotifs, setUnreadAdminNotifs] = useState(0);
+
+  useEffect(() => {
+    // Pending offers count
+    const q1 = query(collection(db, "offers"), orderBy("createdAt", "desc"));
+    const u1 = onSnapshot(q1, (s) => {
+      setPendingOffersCount(s.docs.filter(d => d.data().status === "Submitted").length);
+    }, () => {});
+
+    // Pending KYC count
+    const q2 = query(collection(db, "users"), limit(200));
+    const u2 = onSnapshot(q2, (s) => {
+      setPendingKycCount(s.docs.filter(d => d.data().kycStatus === "Pending").length);
+    }, () => {});
+
+    // Pending inspection requests count
+    const q3 = query(collection(db, "inspection_requests"), orderBy("createdAt", "desc"), limit(200));
+    const u3 = onSnapshot(q3, (s) => {
+      setPendingInspectCount(s.docs.filter(d => !d.data().status || d.data().status === "Pending").length);
+    }, () => {});
+
+    // Admin notification inbox
+    const q4 = query(collection(db, "admin_notifications"), orderBy("createdAt", "desc"), limit(50));
+    const u4 = onSnapshot(q4, (s) => {
+      const list = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAdminNotifs(list);
+      setUnreadAdminNotifs(list.filter(n => !n.read).length);
+    }, () => {});
+
+    return () => { u1(); u2(); u3(); u4(); };
+  }, []);
+
   // Persist to localStorage and notify parent
   useEffect(() => {
     localStorage.setItem("lp_admin_deals_v2", JSON.stringify(deals));
@@ -2164,12 +2201,13 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
 
           <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,.7)", border: `1.5px solid ${T.line}`, borderRadius: 12, padding: 3 }}>
             {[
-              ["deals", "Deal Management"],
-              ["offers", "Buyer Offers"],
-              ["escrow", "Escrow Manager"],
-              ["verifications", "KYC & Inspections"],
-              ["analytics", "Analytics"]
-            ].map(([k, label]) => (
+              ["deals", "Deal Management", 0],
+              ["inbox", "📬 Inbox", unreadAdminNotifs],
+              ["offers", "Buyer Offers", pendingOffersCount],
+              ["escrow", "Escrow Manager", 0],
+              ["verifications", `KYC & Inspections`, pendingKycCount + pendingInspectCount],
+              ["analytics", "Analytics", 0]
+            ].map(([k, label, badge]) => (
               <button
                 key={k}
                 onClick={() => setAdminTab(k)}
@@ -2182,10 +2220,27 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
                   cursor: "pointer",
                   background: adminTab === k ? T.green : "transparent",
                   color: adminTab === k ? "#fff" : T.sub,
-                  transition: "all .18s ease"
+                  transition: "all .18s ease",
+                  position: "relative",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
                 }}
               >
                 {label}
+                {badge > 0 && (
+                  <span style={{
+                    background: adminTab === k ? "rgba(255,255,255,.3)" : T.risk,
+                    color: "#fff",
+                    borderRadius: 99,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "1px 5px",
+                    minWidth: 16,
+                    textAlign: "center",
+                    lineHeight: "14px",
+                  }}>{badge}</span>
+                )}
               </button>
             ))}
           </div>
@@ -2197,6 +2252,91 @@ export default function Admin({ initialDeals, onDealsChange, onBack }) {
       </header>
 
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: "20px 20px 80px" }}>
+
+        {/* Inbox tab — admin_notifications from Cloud Functions */}
+        {adminTab === "inbox" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, animation: "slideup .25s ease-out" }}>
+            <div style={{ background: `linear-gradient(135deg, ${T.ink} 0%, #1A3E31 100%)`, borderRadius: 18, padding: "24px", color: "#fff" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: T.gold, marginBottom: 8 }}>Operations Inbox</div>
+              <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 24 }}>📬 Admin Notifications</div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,.7)", marginTop: 4 }}>Real-time alerts from buyer activity — new offers and inspection requests.</div>
+            </div>
+            <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 16, overflow: "hidden" }}>
+              <div style={{ background: T.mint, padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: T.green }}>
+                  Inbox ({adminNotifs.length}) · {unreadAdminNotifs} unread
+                </div>
+                {unreadAdminNotifs > 0 && (
+                  <button
+                    onClick={async () => {
+                      const unread = adminNotifs.filter(n => !n.read);
+                      await Promise.all(unread.map(n => updateDoc(doc(db, "admin_notifications", n.id), { read: true })));
+                      showToast("All marked as read ✓");
+                    }}
+                    style={{ border: "none", background: T.green, color: "#fff", padding: "5px 12px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Mark all read
+                  </button>
+                )}
+              </div>
+              {adminNotifs.length === 0 ? (
+                <div style={{ padding: "40px 24px", textAlign: "center", color: T.sub }}>
+                  <div style={{ fontSize: 24, marginBottom: 8 }}>✉️</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>Inbox is empty</div>
+                  <div style={{ fontSize: 12.5, marginTop: 4 }}>New buyer offers and inspection requests will appear here automatically.</div>
+                </div>
+              ) : (
+                adminNotifs.map((n, i) => (
+                  <div
+                    key={n.id}
+                    style={{
+                      padding: "16px 20px",
+                      borderBottom: i < adminNotifs.length - 1 ? `1px solid ${T.line}` : "none",
+                      background: n.read ? "#fff" : "#FAFDF9",
+                      display: "flex", gap: 14, alignItems: "flex-start",
+                    }}
+                  >
+                    <div style={{
+                      width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+                      background: n.type === "offer_received" ? T.mint : T.tealSoft,
+                      display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
+                    }}>
+                      {n.type === "offer_received" ? "🏡" : "📋"}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: T.ink, display: "flex", alignItems: "center", gap: 8 }}>
+                        {n.title}
+                        {!n.read && <span style={{ background: T.risk, color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 800, padding: "1px 5px" }}>NEW</span>}
+                      </div>
+                      {n.buyerName && <div style={{ fontSize: 12, color: T.sub, marginTop: 2 }}>From: <strong>{n.buyerName}</strong> · {n.buyerEmail}</div>}
+                      {n.offerPrice && <div style={{ fontSize: 13, fontWeight: 800, color: T.green, marginTop: 4 }}>₦{Number(n.offerPrice).toLocaleString()}</div>}
+                      {n.dealName && <div style={{ fontSize: 12, color: T.sub }}>Property: {n.dealName} · {n.district}</div>}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                      <div style={{ fontSize: 11, color: T.sub }}>
+                        {n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString("en-NG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+                      </div>
+                      {!n.read && (
+                        <button
+                          onClick={() => updateDoc(doc(db, "admin_notifications", n.id), { read: true })}
+                          style={{ border: "none", background: "transparent", color: T.teal, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}
+                        >
+                          Mark read
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setAdminTab(n.type === "offer_received" ? "offers" : "verifications"); }}
+                        style={{ border: `1.5px solid ${T.green}`, background: "transparent", color: T.green, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "3px 8px", borderRadius: 6 }}
+                      >
+                        View →
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Escrow Manager tab */}
         {adminTab === "escrow" && <EscrowManagerView showToast={showToast} />}
