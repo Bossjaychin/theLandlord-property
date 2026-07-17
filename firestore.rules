@@ -35,8 +35,8 @@ service cloud.firestore {
     // ── Users (/users/{userId}) ────────────────────────────────────────────────
     // Users can read and update their own profile.
     // Sensitive fields (role, verified, kycStatus) are admin-only on write.
-    // The KYC bypass path (writing verified/kycStatus from the client) is intentionally
-    // allowed here for development — replace the 'Passed' check with isAdmin() for strict prod.
+    // Users may only set kycStatus to 'Pending' (their own KYC submission).
+    // Only isAdmin() can ever set verified:true or kycStatus:'Passed'.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
 
@@ -54,11 +54,7 @@ service cloud.firestore {
           onlyFields(['preferences', 'lastLogin', 'fcmToken', 'savedDeals', 'updatedAt']) ||
           // Allowed: user can submit KYC details (Pending status only, never self-approve)
           (onlyFields(['kycStatus', 'kycDetails', 'updatedAt']) &&
-           request.resource.data.kycStatus == 'Pending') ||
-          // Allowed: KYC bypass for development (writes verified:true + kycStatus:'Passed')
-          // Remove this block when ready for strict production enforcement
-          (onlyFields(['verified', 'kycStatus', 'kycDetails', 'updatedAt']) &&
-           request.resource.data.kycStatus == 'Passed')
+           request.resource.data.kycStatus == 'Pending')
         )
       );
 
