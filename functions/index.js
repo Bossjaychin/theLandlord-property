@@ -528,8 +528,9 @@ https://thelandlordproperty.com/dashboard`,
  * Triggers when a new offer document is written to the `offers` collection.
  * Sends a confirmation notification to the buyer and creates an admin alert.
  */
-exports.onOfferSubmitted = functions.firestore
-  .document("offers/{offerId}")
+exports.onOfferSubmitted = functions
+  .runWith({ secrets: ["GMAIL_USER", "GMAIL_PASS"] })
+  .firestore.document("offers/{offerId}")
   .onCreate(async (snapshot, context) => {
     const offer = snapshot.data();
     const offerId = context.params.offerId;
@@ -659,8 +660,9 @@ https://thelandlord-property.web.app/admin`,
  * Fires when a buyer submits an inspection request.
  * Notifies the buyer and emails the admin team.
  */
-exports.onInspectionRequested = functions.firestore
-  .document("inspection_requests/{requestId}")
+exports.onInspectionRequested = functions
+  .runWith({ secrets: ["GMAIL_USER", "GMAIL_PASS"] })
+  .firestore.document("inspection_requests/{requestId}")
   .onCreate(async (snapshot, context) => {
     const req = snapshot.data();
     const requestId = context.params.requestId;
