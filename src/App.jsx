@@ -4050,7 +4050,7 @@ export default function App() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 12.5, letterSpacing: 1.4, textTransform: "uppercase", color: T.gold, marginBottom: 18 }}>Contact Info</div>
             <div style={{ fontSize: 13.5, opacity: 0.75, lineHeight: 1.6, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div>Address: Constitution Avenue, Central Business District, Abuja, FCT</div>
+              <div>Address: 22 Philip Shaibu Crescent Wuye, FCT Abuja</div>
               <div>Email: info@thelandlordproperty.com</div>
               <div>Phone: +234 (0) 70 3699 0717</div>
               <div style={{ marginTop: 4 }}>
