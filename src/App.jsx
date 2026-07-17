@@ -1057,7 +1057,7 @@ const VerificationGate = ({ onSignIn }) => (
 
 /* ---------------- Deal modal ---------------- */
 
-const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest, savedIds, onToggleSave, onToast }) => {
+const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, kycVerified, onSignInRequest, savedIds, onToggleSave, onToast }) => {
   const [step, setStep] = useState(1);
   const [photoIdx, setPhotoIdx] = useState(0);
   const [forensicReport, setForensicReport] = useState(null);
@@ -1074,7 +1074,8 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
   const negLow = deal.negotiation?.[0] ?? deal.negotiation_low ?? Math.round(dealAsking * 0.9);
   const negHigh = deal.negotiation?.[1] ?? deal.negotiation_high ?? dealAsking;
   const steps = ["Offer accepted", "AGIS search & legal review", "Documents executed", "Possession — funds released"];
-  const isVerified = !!user; // treat signed-in as verified for demo; in prod check kycVerified claim
+  // isVerified: true when user has passed KYC (claim or localStorage bypass) AND is signed in
+  const isVerified = !!user && (kycVerified || localStorage.getItem(`lp_kyc_${user?.uid}`) === "true");
   const photo = getDealPhoto(deal);
   // Generate 3 mock extra photos by varying the Unsplash query slightly
   const photos = [
@@ -2893,6 +2894,7 @@ export default function App() {
   const [units, setUnits] = useState(BASE_UNITS);
   const [toast, setToast] = useState(null);
   const [user, setUser] = useState(null);
+  const [kycVerified, setKycVerified] = useState(false); // true only after real KYC claim or localStorage bypass
   const [showAuth, setShowAuth] = useState(false);
   const [pushPermission, setPushPermission] = useState(null); // null | 'default' | 'granted' | 'denied'
   const [pushBannerDismissed, setPushBannerDismissed] = useState(false);
@@ -3085,6 +3087,16 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
+        // Read kycVerified from Firebase custom claim, with localStorage bypass as fallback
+        try {
+          const tokenResult = await u.getIdTokenResult();
+          const claimVerified = !!tokenResult.claims.kycVerified;
+          const localBypass = localStorage.getItem(`lp_kyc_${u.uid}`) === "true";
+          setKycVerified(claimVerified || localBypass);
+        } catch {
+          const localBypass = localStorage.getItem(`lp_kyc_${u.uid}`) === "true";
+          setKycVerified(localBypass);
+        }
         try {
           const userDocRef = doc(db, "users", u.uid);
           await updateDoc(userDocRef, {
@@ -3098,6 +3110,8 @@ export default function App() {
         if ('Notification' in window) {
           setPushPermission(Notification.permission);
         }
+      } else {
+        setKycVerified(false);
       }
     });
     return unsubscribe; // cleans up listener on unmount
@@ -4069,7 +4083,7 @@ export default function App() {
         />
       )}
       <CompareBar compareIds={compareIds} dealsList={dealsList} onRemove={(id) => setCompareIds(prev => prev.filter(x => x !== id))} onOpen={setModal} onClear={() => setCompareIds([])} cur={cur} />
-      <DealModal deal={modal} cur={cur} onClose={() => setModal(null)} onBuyAndOnboard={buyAndOnboard} user={user} onSignInRequest={() => setShowAuth(true)} savedIds={savedIds} onToggleSave={toggleSave} onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); }} />
+      <DealModal deal={modal} cur={cur} onClose={() => setModal(null)} onBuyAndOnboard={buyAndOnboard} user={user} kycVerified={kycVerified} onSignInRequest={() => setShowAuth(true)} savedIds={savedIds} onToggleSave={toggleSave} onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); }} />
       <WhatsAppPanel open={waOpen} setOpen={setWaOpen} />
     </div>
   );
