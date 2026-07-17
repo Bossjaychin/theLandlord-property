@@ -4,37 +4,49 @@
     <meta charset="UTF-8" />
 
     <!-- ══ Favicon & PWA Icons ══ -->
-    <!-- ICO: legacy IE/Edge & OS bookmark icons -->
     <link rel="shortcut icon" href="/favicon.ico" />
-    <!-- SVG: modern browsers (Chrome, Firefox, Safari 15+) — scales perfectly at any DPR -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <!-- PNG fallback at 32px for browsers that prefer PNG over SVG -->
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-    <!-- Apple touch icon — used when user adds to iOS Home Screen -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <!-- PWA manifest icons (192 + 512) -->
     <link rel="manifest" href="/manifest.json" />
 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- ══ Viewport & Theme ══ -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0E5A3A" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- ══ iOS PWA ══ -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TheLandlord" />
+    <meta name="mobile-web-app-capable" content="yes" />
 
     <!-- ══ SEO ══ -->
     <meta name="description" content="The Landlord Property — find, verify and buy below-market distress deals in Abuja, then earn as a managed shortlet. NIN/BVN KYC · AGIS title search · escrow-secured payments." />
-    <meta name="keywords" content="Abuja property, shortlet, distress property, real estate Nigeria, verified property, escrow" />
+    <meta name="keywords" content="Abuja property, shortlet, distress property, real estate Nigeria, verified property, escrow, buy property Abuja, investment property Nigeria" />
+    <meta name="author" content="The Landlord Property" />
+    <meta name="robots" content="index, follow" />
 
-    <!-- ══ Open Graph / Social ══ -->
+    <!-- ══ Open Graph / Social (absolute URLs required for WhatsApp/LinkedIn) ══ -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="The Landlord Property" />
+    <meta property="og:url" content="https://thelandlord-property.web.app/" />
     <meta property="og:title" content="The Landlord Property — Find · Verify · Buy · Earn, Abuja" />
     <meta property="og:description" content="Verified distress deals below market price + AI shortlet management. Abuja's smartest property platform." />
-    <meta property="og:image" content="/icon-512.png" />
+    <meta property="og:image" content="https://thelandlord-property.web.app/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:locale" content="en_NG" />
 
     <!-- ══ Twitter Card ══ -->
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@TheLandlordNG" />
     <meta name="twitter:title" content="The Landlord Property — Abuja" />
     <meta name="twitter:description" content="AI-powered property verification &amp; shortlet management across Abuja." />
-    <meta name="twitter:image" content="/icon-512.png" />
+    <meta name="twitter:image" content="https://thelandlord-property.web.app/icon-512.png" />
 
     <title>The Landlord Property — Find · Verify · Buy · Earn, Abuja</title>
+
     <!-- Leaflet CSS for interactive Abuja map -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   </head>
@@ -43,3 +55,4 @@
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
+
