@@ -610,3 +610,9 @@ The Landlord Property AI`,
 
     console.log(`[onOfferSubmitted] Offer ${offerId} processed. Sent confirmation to buyer ${buyerId}.`);
   });
+
+const { getShortletPricing } = require("./shortletPricing");
+const { getDistressDealIntelligence } = require("./distressDeal");
+
+exports.getShortletPricing = getShortletPricing;
+exports.getDistressDealIntelligence = getDistressDealIntelligence;
