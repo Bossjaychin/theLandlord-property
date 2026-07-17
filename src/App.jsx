@@ -51,17 +51,21 @@ const T = {
 const FX = 1550; // ₦ per USD (demo rate)
 
 const fmtN = (n, cur) => {
+  const val = Number(n || 0);
   if (cur === "USD") {
-    const v = n / FX;
+    const v = val / FX;
     return v >= 1000
       ? "$" + Math.round(v).toLocaleString()
       : "$" + v.toLocaleString(undefined, { maximumFractionDigits: 0 });
   }
-  if (n >= 1_000_000) return "₦" + (n / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "m";
-  return "₦" + n.toLocaleString();
+  if (val >= 1_000_000) return "₦" + (val / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "m";
+  return "₦" + val.toLocaleString();
 };
-const fmtFull = (n, cur) =>
-  cur === "USD" ? "$" + Math.round(n / FX).toLocaleString() : "₦" + n.toLocaleString();
+
+const fmtFull = (n, cur) => {
+  const val = Number(n || 0);
+  return cur === "USD" ? "$" + Math.round(val / FX).toLocaleString() : "₦" + val.toLocaleString();
+};
 
 /* ---------------- Mock data ---------------- */
 
@@ -1064,17 +1068,19 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
 
 
   if (!deal) return null;
-  const disc = Math.round(((deal.market - deal.asking) / deal.market) * 100);
-  const negLow = deal.negotiation?.[0] ?? deal.negotiation_low ?? Math.round(deal.asking * 0.9);
-  const negHigh = deal.negotiation?.[1] ?? deal.negotiation_high ?? deal.asking;
+  const dealMarket = Number(deal.market || deal.asking || 1);
+  const dealAsking = Number(deal.asking || 0);
+  const disc = Math.round(((dealMarket - dealAsking) / dealMarket) * 100);
+  const negLow = deal.negotiation?.[0] ?? deal.negotiation_low ?? Math.round(dealAsking * 0.9);
+  const negHigh = deal.negotiation?.[1] ?? deal.negotiation_high ?? dealAsking;
   const steps = ["Offer accepted", "AGIS search & legal review", "Documents executed", "Possession — funds released"];
   const isVerified = !!user; // treat signed-in as verified for demo; in prod check kycVerified claim
   const photo = getDealPhoto(deal);
   // Generate 3 mock extra photos by varying the Unsplash query slightly
   const photos = [
     photo,
-    photo.replace("w=800", "w=801"),
-    photo.replace("w=800", "w=802"),
+    photo?.replace ? photo.replace("w=800", "w=801") : photo,
+    photo?.replace ? photo.replace("w=800", "w=802") : photo,
   ];
 
   const runForensics = async () => {
@@ -1632,10 +1638,10 @@ const DealModal = ({ deal, cur, onClose, onBuyAndOnboard, user, onSignInRequest,
           <div style={{ background: T.teal, borderRadius: 14, padding: 18, marginTop: 14, color: "#fff" }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.6, opacity: 0.85 }}>BUY SMART → EARN SMART</div>
             <div style={{ fontFamily: "'Bricolage Grotesque'", fontWeight: 800, fontSize: 20, marginTop: 6 }}>
-              Projected {fmtN(deal.shortlet.monthlyNet, cur)}/month as a managed shortlet
+              Projected {fmtN(deal.shortlet?.monthlyNet, cur)}/month as a managed shortlet
             </div>
             <div style={{ fontSize: 13, opacity: 0.9, marginTop: 4 }}>
-              {fmtN(deal.shortlet.nightly, cur)}/night · {Math.round(deal.shortlet.occ * 100)}% occupancy (district + event model) · payback boost from the −{disc}% purchase discount.
+              {fmtN(deal.shortlet?.nightly, cur)}/night · {Math.round((deal.shortlet?.occ || 0) * 100)}% occupancy (district + event model) · payback boost from the −{disc}% purchase discount.
             </div>
             <div style={{ marginTop: 12 }}>
               <Btn kind="gold" onClick={() => onBuyAndOnboard(deal)}>
@@ -3821,7 +3827,7 @@ export default function App() {
           <Route path="/" element={<DealsView cur={cur} onOpen={setModal} query={query} setQuery={setQuery} dealsList={usingEmulator ? dbProperties : dealsList} onAiSearch={handleAiSearch} aiResults={aiResults} aiSearching={aiSearching} usingEmulator={usingEmulator} savedIds={savedIds} onToggleSave={toggleSave} compareIds={compareIds} onToggleCompare={toggleCompare} />} />
           <Route path="/listings" element={<Listings dealsList={usingEmulator ? dbProperties : dealsList} cur={cur} onOpen={setModal} user={user} />} />
           <Route path="/marketplace" element={<Marketplace cur={cur} onWhatsAppOpen={() => setWaOpen(true)} usingEmulator={usingEmulator} dataConnect={dataConnect} user={user} onSignInRequest={() => setShowAuth(true)} distressDeals={usingEmulator ? dbProperties : dealsList.filter(d => d.status === "Published" || !d.status)} onOpenDeal={(deal) => setModal(deal)} />} />
-          <Route path="/profile" element={<Profile user={user} cur={cur} onSignInRequest={() => setShowAuth(true)} onListingsChange={setDealsList} dealsList={dealsList} onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 4000); }} savedIds={savedIds} onToggleSave={toggleSave} onOpen={setModal} onBuyAndOnboard={buyAndOnboard} onRegisterDistressProperty={async (newProp) => {
+          <Route path="/profile" element={<Profile user={user} cur={cur} onSignInRequest={() => setShowAuth(true)} onListingsChange={setDealsList} dealsList={usingEmulator ? dbProperties : dealsList} onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 4000); }} savedIds={savedIds} onToggleSave={toggleSave} onOpen={setModal} onBuyAndOnboard={buyAndOnboard} onRegisterDistressProperty={async (newProp) => {
               if (!usingEmulator) return;
               try {
                 await createDistressProperty(dataConnect, {
