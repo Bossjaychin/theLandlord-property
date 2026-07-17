@@ -1657,8 +1657,17 @@ export default function Profile({
                 </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 }}>
-                  {savedDeals.map(deal => {
-                    const disc = deal.market ? Math.round(((deal.market - deal.asking) / deal.market) * 100) : 0;
+                  {savedDeals.map(rawDeal => {
+                    // Normalize schema: Firestore uses askingPrice/marketValue/title, mock uses asking/market/name
+                    const deal = {
+                      ...rawDeal,
+                      name: rawDeal.name || rawDeal.title || "Property Listing",
+                      district: rawDeal.district || rawDeal.location || "Abuja",
+                      type: rawDeal.type || rawDeal.propertyType || "Property",
+                      asking: Number(rawDeal.asking || rawDeal.askingPrice || 0),
+                      market: Number(rawDeal.market || rawDeal.marketValue || rawDeal.asking || rawDeal.askingPrice || 0),
+                    };
+                    const disc = deal.market > deal.asking ? Math.round(((deal.market - deal.asking) / deal.market) * 100) : 0;
                     const pType = (deal.type || "").toLowerCase();
                     const photo = pType.includes("land") ? "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600&q=80"
                                 : pType.includes("terrace") ? "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=600&q=80"
@@ -1842,10 +1851,35 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
     return "₦" + n.toLocaleString();
   };
 
+  // Normalize Firestore property schema → DealModal schema
+  const normalizeDeal = (d) => ({
+    ...d,
+    id: d.id,
+    name: d.name || d.title || "Property Listing",
+    district: d.district || d.location || "Abuja",
+    type: d.type || d.propertyType || "Property",
+    asking: Number(d.asking || d.askingPrice || 0),
+    market: Number(d.market || d.marketValue || d.asking || d.askingPrice || 0),
+    negotiation_low: d.negotiation_low ?? Math.round(Number(d.asking || d.askingPrice || 0) * 0.9),
+    negotiation_high: d.negotiation_high ?? Number(d.asking || d.askingPrice || 0),
+    bedrooms: d.bedrooms ?? null,
+    bathrooms: d.bathrooms ?? null,
+    sqm: d.sqm ?? null,
+    shortlet: d.shortlet ?? null,
+    bookings: d.bookings ?? [],
+    tags: d.tags ?? [],
+    features: d.features ?? [],
+    description: d.description ?? "",
+    seller: d.seller ?? null,
+    titleDoc: d.titleDoc ?? null,
+    agisRef: d.agisRef ?? null,
+    investmentScore: d.investmentScore ?? null,
+  });
+
   // Client-side computed matches
   const allDeals = [...(dealsList || []), ...(firestoreProps || [])];
   const activeMatches = allDeals.filter(d => {
-    const districtMatch = (buyerPrefs?.preferredDistricts || []).includes(d.district);
+    const districtMatch = (buyerPrefs?.preferredDistricts || []).includes(d.district || d.location);
     const budgetMatch = Number(d.asking || d.askingPrice || 0) <= (buyerPrefs?.budget || Infinity);
     const notOwnListing = d.userId !== user?.uid;
     return districtMatch && budgetMatch && notOwnListing;
@@ -1957,7 +1991,7 @@ function MatchesTab({ db, user, cur, dealsList, firestoreProps, buyerPrefs, kycV
                           </div>
 
                           <button
-                            onClick={() => onOpen(deal)}
+                            onClick={() => onOpen(normalizeDeal(deal))}
                             style={{
                               width: "100%", marginTop: 10,
                               background: "transparent", border: `1.5px solid ${T.green}`,
