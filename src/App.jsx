@@ -2191,14 +2191,40 @@ const WhatsAppPanel = ({ open, setOpen }) => {
             flexDirection: "column",
           }}
         >
-          <div style={{ background: "#0B3D2E", color: "#fff", padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>Landlord Property · WhatsApp</div>
-              <div style={{ fontSize: 11.5, opacity: 0.8 }}>Online · replies in seconds · English / Pidgin</div>
+          <div style={{ background: "#0B3D2E", color: "#fff", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>Landlord Property · WhatsApp</div>
+                <div style={{ fontSize: 11.5, opacity: 0.8 }}>Online · replies in seconds · English / Pidgin</div>
+              </div>
+              <button onClick={() => setOpen(false)} aria-label="Close chat" style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", borderRadius: 8, width: 28, height: 28, cursor: "pointer" }}>
+                ✕
+              </button>
             </div>
-            <button onClick={() => setOpen(false)} aria-label="Close chat" style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", borderRadius: 8, width: 28, height: 28, cursor: "pointer" }}>
-              ✕
-            </button>
+            <a
+              href="https://wa.me/2347036990717"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                background: "#1FAF55",
+                color: "#fff",
+                textDecoration: "none",
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontSize: 12,
+                fontWeight: 700,
+                boxShadow: "0 2px 4px rgba(0,0,0,0.15)",
+                transition: "opacity 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = 0.9}
+              onMouseLeave={e => e.currentTarget.style.opacity = 1}
+            >
+              🟢 Open Real WhatsApp Chat
+            </a>
           </div>
           <div ref={boxRef} style={{ height: 300, overflowY: "auto", padding: 12, background: "#EFEAE2", display: "flex", flexDirection: "column", gap: 8 }}>
             {msgs.map((m, i) => (
@@ -2280,6 +2306,10 @@ const OfferForm = ({ deal, user, cur, onToast }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!offerData.offerPrice || !user) return;
+    if (!user.emailVerified) {
+      if (onToast) onToast("Please verify your email before submitting an offer.");
+      return;
+    }
     setStage("submitting");
     try {
       const offerPrice = Number(offerData.offerPrice);
@@ -2916,6 +2946,7 @@ export default function App() {
   const [pushBannerDismissed, setPushBannerDismissed] = useState(false);
   const [showPushBanner, setShowPushBanner] = useState(false);
   const [fcmForegroundNotif, setFcmForegroundNotif] = useState(null);
+  const [emailVerifyBannerDismissed, setEmailVerifyBannerDismissed] = useState(false);
 
   // Saved / Watchlist deals state (Set of deal IDs)
   const [savedIds, setSavedIds] = useState(() => {
@@ -3779,6 +3810,70 @@ export default function App() {
         </div>
       </header>
 
+      {/* ── Email Verification Banner ── */}
+      {user && !user.emailVerified && !emailVerifyBannerDismissed && (
+        <div style={{
+          background: T.goldSoft,
+          borderBottom: `1.5px solid ${T.gold}33`,
+          color: "#7A5800",
+          padding: "10px 18px",
+          fontSize: 13,
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.04)"
+        }}>
+          <span style={{ fontSize: 14 }}>✉️</span>
+          <span>Verify your email to unlock full access — check your inbox.</span>
+          <button
+            onClick={async () => {
+              try {
+                const { sendEmailVerification } = await import("firebase/auth");
+                await sendEmailVerification(auth.currentUser);
+                setToast("Verification email sent! Check your inbox. ✉️");
+                setTimeout(() => setToast(null), 3000);
+              } catch (e) {
+                console.error("Resend verification failed:", e);
+                setToast("Failed to resend verification email. Please try again.");
+                setTimeout(() => setToast(null), 3000);
+              }
+            }}
+            style={{
+              background: T.gold,
+              color: T.ink,
+              border: "none",
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              marginLeft: 6
+            }}
+          >
+            Resend email
+          </button>
+          <button
+            onClick={() => setEmailVerifyBannerDismissed(true)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#7A5800",
+              cursor: "pointer",
+              fontSize: 13,
+              padding: "0 4px",
+              marginLeft: "auto",
+              fontWeight: "bold"
+            }}
+            aria-label="Dismiss banner"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* body */}
       <main style={{ maxWidth: 1120, margin: "0 auto", padding: "18px 18px 90px" }}>
 
@@ -3969,6 +4064,11 @@ export default function App() {
                     <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.6.75Zm-.86 13.028h1.36L4.323 2.145H2.865l8.875 11.633Z"/>
                   </svg>
                 )},
+                { name: "WhatsApp", href: "https://wa.me/2347036990717", icon: (
+                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M13.601 2.326A7.854 7.854 0 0 0 7.994 0C3.627 0 .068 3.558.064 7.926c0 1.399.366 2.76 1.057 3.965L0 16l4.204-1.102a7.933 7.933 0 0 0 3.79.965h.004c4.368 0 7.926-3.558 7.93-7.93A7.898 7.898 0 0 0 13.6 2.326zM7.994 14.521a6.573 6.573 0 0 1-3.356-.92l-.24-.144-2.494.654.666-2.433-.156-.251a6.56 6.56 0 0 1-1.007-3.505c0-3.626 2.957-6.584 6.591-6.584a6.56 6.56 0 0 1 4.66 1.931 6.557 6.557 0 0 1 1.928 4.66c-.004 3.639-2.961 6.592-6.592 6.592zm3.618-4.949c-.198-.099-1.17-.578-1.353-.646-.182-.065-.315-.099-.445.099-.133.197-.513.646-.627.775-.114.133-.232.148-.43.05-.197-.1-.836-.308-1.592-.985-.59-.525-.985-1.175-1.103-1.372-.114-.198-.011-.304.088-.403.087-.088.197-.232.296-.346.1-.114.133-.198.198-.33.065-.134.034-.248-.015-.347-.05-.099-.445-1.076-.612-1.47-.16-.389-.323-.335-.445-.34-.114-.007-.247-.007-.38-.007a.729.729 0 0 0-.529.247c-.182.198-.691.677-.691 1.654 0 .977.71 1.916.81 2.049.098.133 1.394 2.132 3.383 2.992.47.205.84.326 1.129.418.475.152.904.129 1.246.08.38-.058 1.171-.48 1.338-.943.164-.464.164-.86.114-.943-.049-.084-.182-.133-.38-.232z"/>
+                  </svg>
+                )},
                 { name: "LinkedIn", href: "https://linkedin.com/company/thelandlordai", icon: (
                   <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                     <path d="M0 1.146C0 .513.526 0 1.175 0h13.65C15.474 0 16 .513 16 1.146v13.708c0 .633-.526 1.146-1.175 1.146H1.175C.526 16 0 15.487 0 14.854V1.146zm4.943 12.248V6.169H2.542v7.225h2.401zm-1.2-8.212c.837 0 1.358-.554 1.358-1.248-.015-.709-.52-1.248-1.342-1.248-.822 0-1.359.54-1.359 1.248 0 .694.521 1.248 1.327 1.248h.016zm4.908 8.212V9.359c0-.216.016-.432.08-.586.173-.431.568-.878 1.232-.878.869 0 1.216.662 1.216 1.634v3.865h2.401V9.25c0-2.22-1.184-3.252-2.764-3.252-1.274 0-1.845.7-2.165 1.193v.025h-.016a5.54 5.54 0 0 1 .016-.025V6.169h-2.4c.03.678 0 7.225 0 7.225h2.4z"/>
@@ -4051,10 +4151,11 @@ export default function App() {
             <div style={{ fontWeight: 700, fontSize: 12.5, letterSpacing: 1.4, textTransform: "uppercase", color: T.gold, marginBottom: 18 }}>Contact Info</div>
             <div style={{ fontSize: 13.5, opacity: 0.75, lineHeight: 1.6, display: "flex", flexDirection: "column", gap: 10 }}>
               <div>Address: 22 Philip Shaibu Crescent Wuye, FCT Abuja</div>
-              <div>Email: info@thelandlordproperty.com</div>
-              <div>Phone: +234 (0) 70 3699 0717</div>
+              <div>Email: <a href="mailto:info@thelandlordproperty.com" style={{ color: "inherit", textDecoration: "none" }}onMouseEnter={e => e.currentTarget.style.color = T.gold} onMouseLeave={e => e.currentTarget.style.color = "inherit"}>info@thelandlordproperty.com</a></div>
+              <div>Phone: <a href="tel:+2347036990717" style={{ color: "inherit", textDecoration: "none" }}onMouseEnter={e => e.currentTarget.style.color = T.gold} onMouseLeave={e => e.currentTarget.style.color = "inherit"}>+234 (0) 70 3699 0717</a></div>
+              <div>WhatsApp: <a href="https://wa.me/2347036990717" target="_blank" rel="noreferrer" style={{ color: "#4ade80", fontWeight: 700, textDecoration: "none" }}onMouseEnter={e => e.currentTarget.style.opacity = 0.8} onMouseLeave={e => e.currentTarget.style.opacity = 1}>+234 703 699 0717 💬</a></div>
               <div style={{ marginTop: 4 }}>
-                <span style={{ color: T.gold, fontWeight: 700 }}>Concierge:</span> Chat on WhatsApp via the active bubble below
+                <span style={{ color: T.gold, fontWeight: 700 }}>Concierge:</span> Chat on WhatsApp via the active bubble below or the link above
               </div>
             </div>
           </div>

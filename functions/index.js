@@ -44,27 +44,19 @@ async function sendPush(uid, title, body) {
  * Automatically provisions their profile document in Firestore,
  * dispatches welcome notifications, and logs the activity.
  */
-exports.onUserCreated = functions.auth.user().onCreate(async (user) => {
+exports.onUserCreated = functions
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .auth.user().onCreate(async (user) => {
   const uid = user.uid;
   const email = user.email || "";
   const displayName = user.displayName || "";
   const phoneNumber = user.phoneNumber || "";
 
-  let role = "buyer";
-  const searchString = (email + " " + displayName).toLowerCase();
-  if (searchString.includes("admin")) {
-    role = "admin";
-  } else if (searchString.includes("seller") && searchString.includes("distress")) {
-    role = "distress_seller";
-  } else if (searchString.includes("seller")) {
-    role = "seller";
-  } else if (searchString.includes("owner")) {
-    role = "shortlet_owner";
-  } else if (searchString.includes("guest")) {
-    role = "shortlet_guest";
-  }
+  // All new users start as "buyer". Role changes (seller, admin, shortlet_owner, etc.)
+  // must only be made by an authenticated admin through the admin panel.
+  const role = "buyer";
 
-  const name = displayName || email.split("@")[0] || "User";
+  const name = displayName || "there";
 
   // 2. Create the Firestore User profile document
   const userRef = db.collection("users").doc(uid);
@@ -73,7 +65,7 @@ exports.onUserCreated = functions.auth.user().onCreate(async (user) => {
     email: email,
     phone: phoneNumber,
     role: role,
-    buyer: role === "buyer",
+    buyer: true,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     lastLogin: admin.firestore.FieldValue.serverTimestamp(),
     verified: false,
@@ -85,147 +77,31 @@ exports.onUserCreated = functions.auth.user().onCreate(async (user) => {
   };
 
   await userRef.set(userProfile);
-  console.log(`[onUserCreated] Created user profile in Firestore for uid: ${uid}, role: ${role}`);
+  console.log(`[onUserCreated] Created user profile in Firestore for uid: ${uid}, role: buyer`);
 
-  // 3. Select notifications templates based on role
+  // 3. Welcome notifications for new buyers
   const notificationsToSend = [];
 
-  if (role === "buyer") {
-    // Welcome Email
-    notificationsToSend.push({
-      type: "email",
-      title: "🏡 Welcome to The Landlord Property AI",
-      message: `Hello ${name},
+  // Welcome Email
+  notificationsToSend.push({
+    type: "email",
+    title: "🏡 Welcome to The Landlord Property AI",
+    message: `Hello ${name},\n\nWelcome to The Landlord Property AI.\n\nYour Buyer Account has been created successfully.\n\nYou can now:\n✔ Buy Verified Property\n✔ Explore Distress Deals\n✔ View AI Property Reports\n✔ Save Favourite Listings\n✔ Request Property Inspection\n\nDashboard\nhttps://thelandlordproperty.com/dashboard\n\nFind.\nVerify.\nBuy.\nStay.\nManage.\n\nRC:1572092\nSince 2019`
+  });
 
-Welcome to The Landlord Property AI.
+  // Welcome SMS
+  notificationsToSend.push({
+    type: "sms",
+    title: "Welcome " + name,
+    message: `Welcome ${name}.\n\nYour account is now active.\n\nLogin to discover verified properties.\n\nThe Landlord Property AI\nthelandlordproperty.com`
+  });
 
-Your Buyer Account has been created successfully.
-
-You can now:
-✔ Buy Verified Property
-✔ Explore Distress Deals
-✔ View AI Property Reports
-✔ Save Favourite Listings
-✔ Request Property Inspection
-
-Dashboard
-https://thelandlordproperty.com/dashboard
-
-Find.
-Verify.
-Buy.
-Sell.
-Stay.
-Manage.
-
-RC:1572092
-Since 2019`
-    });
-
-    // Welcome SMS
-    notificationsToSend.push({
-      type: "sms",
-      title: "Welcome " + name,
-      message: `Welcome ${name}.
-
-Your account is now active.
-
-Login to discover verified properties.
-
-The Landlord Property AI
-thelandlordproperty.com`
-    });
-
-    // Welcome WhatsApp
-    notificationsToSend.push({
-      type: "whatsapp",
-      title: "🏡 Welcome to The Landlord Property AI",
-      message: `🏡 Welcome to The Landlord Property AI
-
-Hello ${name},
-
-Your Buyer Account is ready.
-
-You now have access to:
-🏠 Verified Properties
-⚡ Distress Deals
-🤖 AI Property Advisor
-🔒 Verified Documents
-
-Login
-https://thelandlordproperty.com/dashboard
-
-Need help?
-Reply here anytime.`
-    });
-  } else if (role === "seller") {
-    notificationsToSend.push({
-      type: "email",
-      title: "Welcome Sarah",
-      message: `Welcome ${name}
-
-Your Seller Dashboard is ready.
-
-AI can now:
-- Estimate Property Value
-- Find Buyers
-- Generate Agreements
-- Verify Documents
-- Manage Offers
-
-Start Listing
-Dashboard
-thelandlordproperty.com`
-    });
-  } else if (role === "shortlet_guest") {
-    notificationsToSend.push({
-      type: "whatsapp",
-      title: "Welcome Guest",
-      message: `Welcome ${name}
-
-Book premium verified apartments.
-
-Enjoy
-- AI Concierge
-- Easy Check-in
-- Verified Hosts
-- 24/7 Support
-
-Dashboard
-thelandlordproperty.com`
-    });
-  } else if (role === "shortlet_owner") {
-    notificationsToSend.push({
-      type: "whatsapp",
-      title: "Welcome Host",
-      message: `Welcome Host
-
-Manage your property smarter.
-
-AI Features
-- Dynamic Pricing
-- Guest Screening
-- Cleaning Schedule
-- Revenue Forecast
-- Maintenance Alerts
-
-Dashboard
-thelandlordproperty.com`
-    });
-  } else if (role === "distress_seller") {
-    notificationsToSend.push({
-      type: "sms",
-      title: "Priority Sale Activated",
-      message: `Priority Sale Activated
-
-AI is now matching verified buyers.
-
-Estimated Sale Window: 14 Days
-
-View Dashboard
-thelandlordproperty.com`
-    });
-  }
+  // Welcome WhatsApp
+  notificationsToSend.push({
+    type: "whatsapp",
+    title: "🏡 Welcome to The Landlord Property AI",
+    message: `🏡 Welcome to The Landlord Property AI\n\nHello ${name},\n\nYour Buyer Account is ready.\n\nYou now have access to:\n🏠 Verified Properties\n⚡ Distress Deals\n🤖 AI Property Advisor\n🔒 Verified Documents\n\nLogin\nhttps://thelandlordproperty.com/dashboard\n\nNeed help?\nReply here anytime.`
+  });
 
   // 4. Save Notification documents to history
   const batch = db.batch();
@@ -258,7 +134,71 @@ thelandlordproperty.com`
   // 6. Send FCM push for welcome notification
   await sendPush(uid, '🏡 Welcome to The Landlord Property!', `Hello ${name}, your account is ready. Explore verified distress deals now.`);
 
-  console.log(`[onUserCreated] Sent ${notificationsToSend.length} notifications & logged activity for uid: ${uid}`);
+  // 7. Send Welcome Email & Admin Notification via Resend
+  if (email) {
+    const provider = user.providerData && user.providerData.length > 0
+      ? user.providerData[0].providerId
+      : "email/password";
+    const providerName = provider === 'google.com' ? 'Google' : provider === 'password' ? 'Password' : provider;
+
+    console.log(`[onUserCreated] Sending Resend emails for user: ${uid} (Provider: ${providerName})`);
+    
+    // (a) Welcome Email to user
+    await sendEmail({
+      to: email,
+      subject: "🏡 Welcome to The Landlord Property AI",
+      text: `Hello ${name},\n\nWelcome to The Landlord Property AI. Your account has been successfully created.\n\nYou can now browse distress deals, run AI forensics, and request inspections.\n\nDashboard: https://thelandlord-property.web.app/`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#0E5A3A;color:#fff;padding:24px 28px;border-radius:12px 12px 0 0">
+            <h2 style="margin:0;font-size:20px">🏡 Welcome to The Landlord Property AI</h2>
+          </div>
+          <div style="background:#f8fafb;padding:24px 28px;border-radius:0 0 12px 12px;border:1px solid #e2e8ef;line-height:1.6">
+            <p>Hello <strong>${name}</strong>,</p>
+            <p>Welcome to <strong>The Landlord Property AI</strong>. Your buyer account is now active.</p>
+            <p>As a registered user, you can now:</p>
+            <ul style="padding-left:20px">
+              <li>🔍 Explore verified distress deals across Abuja</li>
+              <li>🤖 Run AI forensics on AGIS title search documents</li>
+              <li>📋 Book physical property inspections</li>
+              <li>🔒 Secure payments via our partner milestone escrow</li>
+            </ul>
+            <div style="margin-top:24px;text-align:center">
+              <a href="https://thelandlord-property.web.app/" style="background:#0E5A3A;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px;display:inline-block">Go to Dashboard →</a>
+            </div>
+          </div>
+        </div>
+      `
+    });
+
+    // (b) Admin notification
+    await sendEmail({
+      to: ADMIN_EMAIL,
+      subject: `🆕 New User: ${name} (${providerName} Signup)`,
+      text: `New user registration via ${providerName}.\n\nName: ${name}\nEmail: ${email}\nRole: ${role}\nUID: ${uid}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#0E6B75;color:#fff;padding:24px 28px;border-radius:12px 12px 0 0">
+            <h2 style="margin:0;font-size:20px">🆕 New ${providerName} User Registered</h2>
+          </div>
+          <div style="background:#f8fafb;padding:24px 28px;border-radius:0 0 12px 12px;border:1px solid #e2e8ef">
+            <table style="width:100%;border-collapse:collapse;font-size:14px">
+              <tr><td style="color:#6b7280;padding:6px 0;width:120px">User Name</td><td style="font-weight:700;color:#111">${name}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Email</td><td style="font-weight:700;color:#111">${email}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Assigned Role</td><td style="font-weight:700;color:#111;text-transform:capitalize">${role}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">Provider</td><td style="font-weight:700;color:#111">${provider}</td></tr>
+              <tr><td style="color:#6b7280;padding:6px 0">User ID</td><td style="font-size:12px;color:#111;font-family:monospace">${uid}</td></tr>
+            </table>
+            <div style="margin-top:24px">
+              <a href="https://thelandlord-property.web.app/admin" style="background:#0E6B75;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px;display:inline-block">Open Admin Dashboard →</a>
+            </div>
+          </div>
+        </div>
+      `
+    });
+  }
+
+  console.log(`[onUserCreated] Completed execution for uid: ${uid}`);
 });
 
 /**
@@ -568,7 +508,7 @@ https://thelandlordproperty.com/dashboard`,
  * Sends a confirmation notification to the buyer and creates an admin alert.
  */
 exports.onOfferSubmitted = functions
-  .runWith({ secrets: ["GMAIL_USER", "GMAIL_PASS"] })
+  .runWith({ secrets: ["RESEND_API_KEY"] })
   .firestore.document("offers/{offerId}")
   .onCreate(async (snapshot, context) => {
     const offer = snapshot.data();
@@ -700,7 +640,7 @@ https://thelandlord-property.web.app/admin`,
  * Notifies the buyer and emails the admin team.
  */
 exports.onInspectionRequested = functions
-  .runWith({ secrets: ["GMAIL_USER", "GMAIL_PASS"] })
+  .runWith({ secrets: ["RESEND_API_KEY"] })
   .firestore.document("inspection_requests/{requestId}")
   .onCreate(async (snapshot, context) => {
     const req = snapshot.data();
@@ -787,7 +727,7 @@ exports.onInspectionRequested = functions
  * Sends an email notification to the admin with KYC details to review.
  */
 exports.onKycSubmitted = functions
-  .runWith({ secrets: ["GMAIL_USER", "GMAIL_PASS"] })
+  .runWith({ secrets: ["RESEND_API_KEY"] })
   .firestore.document("users/{userId}")
   .onUpdate(async (change, context) => {
     const beforeData = change.before.data();
@@ -850,6 +790,80 @@ exports.onKycSubmitted = functions
 
       console.log(`[onKycSubmitted] Email alert sent for user: ${userId}.`);
     }
+  });
+
+/**
+ * resendWelcomeEmail (Callable Cloud Function)
+ * Resends the welcome email to the signed-in user, rate-limited to once per 5 minutes.
+ */
+exports.resendWelcomeEmail = functions
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "User must be authenticated.");
+    }
+    const uid = context.auth.uid;
+    const userRef = db.collection("users").doc(uid);
+    const userDoc = await userRef.get();
+
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "User profile not found.");
+    }
+
+    const userData = userDoc.data();
+    const email = userData.email;
+    const name = userData.name || "User";
+
+    if (!email) {
+      throw new functions.https.HttpsError("failed-precondition", "User has no email address associated.");
+    }
+
+    const now = Date.now();
+    const lastSent = userData.lastWelcomeEmailSent ? userData.lastWelcomeEmailSent.toMillis() : 0;
+    const cooldowned = now - lastSent;
+
+    if (cooldowned < 5 * 60 * 1000) {
+      const remainingSecs = Math.ceil((5 * 60 * 1000 - cooldowned) / 1000);
+      throw new functions.https.HttpsError(
+        "resource-exhausted",
+        `Rate limit exceeded. Please wait ${remainingSecs} seconds before trying again.`
+      );
+    }
+
+    // Send the email
+    await sendEmail({
+      to: email,
+      subject: "🏡 Welcome to The Landlord Property AI",
+      text: `Hello ${name},\n\nWelcome to The Landlord Property AI.\n\nYou can browse distress deals, run AI forensics, and request inspections.\n\nDashboard: https://thelandlord-property.web.app/`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#0E5A3A;color:#fff;padding:24px 28px;border-radius:12px 12px 0 0">
+            <h2 style="margin:0;font-size:20px">🏡 Welcome to The Landlord Property AI</h2>
+          </div>
+          <div style="background:#f8fafb;padding:24px 28px;border-radius:0 0 12px 12px;border:1px solid #e2e8ef;line-height:1.6">
+            <p>Hello <strong>${name}</strong>,</p>
+            <p>Welcome to <strong>The Landlord Property AI</strong>. Your buyer account is active.</p>
+            <p>You can now:</p>
+            <ul style="padding-left:20px">
+              <li>🔍 Explore verified distress deals across Abuja</li>
+              <li>🤖 Run AI forensics on AGIS title search documents</li>
+              <li>📋 Book physical property inspections</li>
+              <li>🔒 Secure payments via our partner milestone escrow</li>
+            </ul>
+            <div style="margin-top:24px;text-align:center">
+              <a href="https://thelandlord-property.web.app/" style="background:#0E5A3A;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px;display:inline-block">Go to Dashboard →</a>
+            </div>
+          </div>
+        </div>
+      `
+    });
+
+    // Update the timestamp
+    await userRef.update({
+      lastWelcomeEmailSent: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true };
   });
 
 const { getShortletPricing } = require("./shortletPricing");

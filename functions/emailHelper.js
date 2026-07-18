@@ -1,44 +1,17 @@
 /**
  * emailHelper.js
- * Sends transactional email via Nodemailer (Gmail OAuth2 App Password transport).
+ * Sends transactional email via Resend API.
  *
  * Setup:
- *   1. Set the secrets in Firebase:
- *      firebase functions:secrets:set GMAIL_USER   (e.g. admin@thelandlordproperty.com)
- *      firebase functions:secrets:set GMAIL_PASS   (16-char Google App Password)
- *   2. The GMAIL_USER account must have "Less secure app access" OR
- *      use a Google App Password (recommended).
- *
- * In production you can swap this for SendGrid / Mailgun by replacing
- * the transporter without touching any other file.
+ *   1. Set the secret in Firebase:
+ *      firebase functions:secrets:set RESEND_API_KEY
+ *   2. Ensure the custom domain 'send.thelandlordproperty.com' is verified in Resend dashboard.
  */
 
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
 /**
- * Build a Nodemailer transporter using Gmail App Password credentials
- * stored as Firebase Function secrets.
- */
-function createTransporter() {
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_PASS;
-
-  if (!gmailUser || !gmailPass) {
-    console.warn("[emailHelper] GMAIL_USER or GMAIL_PASS secret is not set. Emails will be skipped.");
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: gmailUser,
-      pass: gmailPass,
-    },
-  });
-}
-
-/**
- * Send an email. Fails gracefully — never throws so it doesn't break the
+ * Send an email using Resend. Fails gracefully — never throws so it doesn't break the
  * surrounding Cloud Function if email delivery fails.
  *
  * @param {object} opts
@@ -48,24 +21,34 @@ function createTransporter() {
  * @param {string}  [opts.html]   - Optional HTML body (falls back to text)
  */
 async function sendEmail({ to, subject, text, html }) {
-  const transporter = createTransporter();
-  if (!transporter) return; // secrets not configured — skip silently
+  const apiKey = process.env.RESEND_API_KEY;
 
-  const from = `"The Landlord Property AI" <${process.env.GMAIL_USER}>`;
+  if (!apiKey) {
+    console.warn("[emailHelper] RESEND_API_KEY secret is not set. Emails will be skipped.");
+    return;
+  }
+
+  const resend = new Resend(apiKey);
+  const from = "The Landlord Property AI <notifications@send.thelandlordproperty.com>";
 
   try {
-    const info = await transporter.sendMail({
+    const response = await resend.emails.send({
       from,
       to,
       subject,
       text,
       html: html || `<pre style="font-family:sans-serif">${text}</pre>`,
     });
-    console.log(`[emailHelper] Email sent to ${to}: ${info.messageId}`);
+
+    if (response.error) {
+      console.error(`[emailHelper] Resend API error sending email to ${to}:`, response.error);
+    } else {
+      console.log(`[emailHelper] Email sent successfully via Resend to ${to}. ID: ${response.data?.id}`);
+    }
   } catch (err) {
-    // Non-fatal — log and continue
     console.error(`[emailHelper] Failed to send email to ${to}:`, err.message);
   }
 }
 
 module.exports = { sendEmail };
+

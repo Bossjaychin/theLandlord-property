@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { auth, db } from "./lib/firebase";
 import { doc, getDoc, getDocs, setDoc, updateDoc, collection, addDoc, serverTimestamp, query, onSnapshot, where, orderBy } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 const T = {
   ink:      "#0C2B1F",
@@ -56,6 +57,78 @@ const Pill = ({ children, bg, color, border }) => (
     {children}
   </span>
 );
+
+/* ── Resend Welcome Email ─────────────────────────────────── */
+const ResendWelcomeEmailButton = () => {
+  const [status, setStatus] = useState(null); // null | 'loading' | 'sent' | 'error'
+  const [msg, setMsg]       = useState("");
+
+  const handle = useCallback(async () => {
+    setStatus("loading");
+    setMsg("");
+    try {
+      const fns = getFunctions();
+      const resend = httpsCallable(fns, "resendWelcomeEmail");
+      await resend();
+      setStatus("sent");
+      setMsg("Welcome email sent! Check your inbox.");
+    } catch (err) {
+      setStatus("error");
+      // Firebase wraps the HttpsError message in err.message
+      setMsg(err.message || "Failed to send. Please try again.");
+    }
+  }, []);
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button
+        id="resend-welcome-email-btn"
+        onClick={handle}
+        disabled={status === "loading" || status === "sent"}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: "rgba(255,255,255,0.12)",
+          color: "#fff",
+          border: "1px solid rgba(255,255,255,0.25)",
+          borderRadius: 8,
+          padding: "6px 14px",
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: status === "loading" || status === "sent" ? "default" : "pointer",
+          opacity: status === "sent" ? 0.6 : 1,
+          transition: "opacity 0.2s",
+          backdropFilter: "blur(4px)",
+        }}
+      >
+        {status === "loading" ? (
+          <>
+            <span style={{ fontSize: 14, animation: "spin 0.8s linear infinite", display: "inline-block" }}>⟳</span>
+            Sending…
+          </>
+        ) : status === "sent" ? (
+          "✓ Email Sent"
+        ) : (
+          "✉ Resend Welcome Email"
+        )}
+      </button>
+      {msg && (
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 11.5,
+            color: status === "error" ? "#FFA1A1" : "rgba(255,255,255,0.75)",
+            lineHeight: 1.4,
+          }}
+        >
+          {msg}
+        </div>
+      )}
+    </div>
+  );
+};
+/* ────────────────────────────────────────────────────────── */
 
 const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = React.useRef(null);
@@ -448,6 +521,10 @@ export default function Profile({
 
   const handleKycSubmit = async (fullName, idType, idNumber, docName) => {
     if (!user) return;
+    if (!user.emailVerified) {
+      if (onToast) onToast("Please verify your email before submitting KYC details.");
+      return;
+    }
     setKycSimulating(true);
     try {
       // 1. Check for duplicate ID numbers across other users
@@ -509,6 +586,10 @@ export default function Profile({
 
   const handleKycAutoApprove = async () => {
     if (!user) return;
+    if (!user.emailVerified) {
+      if (onToast) onToast("Please verify your email before verifying your account.");
+      return;
+    }
     setKycSimulating(true);
     try {
       const userDocRef = doc(db, "users", user.uid);
@@ -555,9 +636,12 @@ export default function Profile({
     });
   };
 
-  // Submit a new listing as a distressed seller
   const handleSellerSubmit = (e) => {
     e.preventDefault();
+    if (user && !user.emailVerified) {
+      if (onToast) onToast("Please verify your email before submitting a distress deal.");
+      return;
+    }
     if (!sellerForm.title || !sellerForm.askingPrice || !sellerForm.marketValue) {
       if (onToast) onToast("Please fill in all required fields.");
       return;
@@ -686,6 +770,10 @@ export default function Profile({
     return unsubscribe;
   }, [user]);
   const handleEscrowPayment = async (escrow) => {
+    if (user && !user.emailVerified) {
+      if (onToast) onToast("Please verify your email to submit escrow payment details.");
+      return;
+    }
     if (!payTxnRef.trim()) {
       if (onToast) onToast("Please enter a Transaction Reference");
       return;
@@ -721,6 +809,10 @@ export default function Profile({
   };
 
   const handleEscrowDeedSubmit = async (escrow, signatureDataUrl) => {
+    if (user && !user.emailVerified) {
+      if (onToast) onToast("Please verify your email to execute the Deed of Assignment.");
+      return;
+    }
     try {
       const escRef = doc(db, "escrows", escrow.id);
       await updateDoc(escRef, {
@@ -758,6 +850,10 @@ export default function Profile({
   };
 
   const handleEscrowRelease = async (escrow) => {
+    if (user && !user.emailVerified) {
+      if (onToast) onToast("Please verify your email to release escrow funds.");
+      return;
+    }
     try {
       const escRef = doc(db, "escrows", escrow.id);
       await updateDoc(escRef, {
@@ -892,6 +988,8 @@ export default function Profile({
               </span>
             </div>
           </div>
+          {/* Resend Welcome Email */}
+          <ResendWelcomeEmailButton />
         </div>
 
         {/* KYC Verification Claim Status */}

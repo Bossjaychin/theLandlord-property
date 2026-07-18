@@ -916,7 +916,10 @@ export default function Marketplace({ cur, onWhatsAppOpen, usingEmulator, dataCo
   };
 
   const handleWhatsApp = (listing) => {
-    if (onWhatsAppOpen) onWhatsAppOpen();
+    const text = listing 
+      ? `Hi, I'm interested in the listing "${listing.title}" located in ${listing.district}.`
+      : "Hi, I'm interested in listing a property on The Landlord.";
+    window.open(`https://wa.me/2347036990717?text=${encodeURIComponent(text)}`, "_blank");
   };
 
   const handleSubmitListing = async (e) => {
@@ -1290,7 +1293,7 @@ export default function Marketplace({ cur, onWhatsAppOpen, usingEmulator, dataCo
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <button
-              onClick={onWhatsAppOpen}
+              onClick={() => handleWhatsApp()}
               style={{ background: "#1FAF55", color: "#fff", border: "none", borderRadius: 12, padding: "13px 24px", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}
             >
               💬 List via WhatsApp
