@@ -480,19 +480,22 @@ export default function Profile({
 
       // 2. Submit KYC Details
       const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, {
+      const payload = {
         kycStatus: "Pending",
-        verified: false,
-        flaggedDuplicate: false, // Default to false, can be set to true by Cloud Function if duplicate bypasses client
         kycDetails: {
           fullName,
           idType,
           idNumber,
-          documentIdNumber: idNumber, // Set both to be safe
+          documentIdNumber: idNumber,
           documentName: docName || "id_scan.png",
           submittedAt: new Date().toISOString()
-        }
-      }, { merge: true });
+        },
+        updatedAt: serverTimestamp()
+      };
+
+      console.log("[KYC Submit] Triggering updateDoc with payload:", JSON.stringify(payload, null, 2));
+
+      await updateDoc(userDocRef, payload);
       
       if (onToast) onToast("Compliance Details Submitted! Awaiting admin review.");
       setShowKycForm(false);
